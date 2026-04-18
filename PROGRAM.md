@@ -245,6 +245,15 @@ V1 packaging behavior:
 
 ---
 
+## References
+
+Local copies in this repo for implementation and engine contract work:
+
+- **`references/quillmark-registry/`** — `@quillmark/registry` source (current registry, sources, packing, validation patterns to carry over or replace).
+- **`references/quillmark/docs`** — Quillmark engine documentation (WASM API, registration, rendering).
+
+---
+
 ## Success Criteria
 
 - A team can author and validate a Source Quiver locally with fast filesystem loops
