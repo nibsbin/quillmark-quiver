@@ -1,0 +1,74 @@
+site_name: Quillmark
+site_description: A template-first Markdown rendering system
+site_url: https://nibsbin.github.io/quillmark
+repo_url: https://github.com/nibsbin/quillmark
+repo_name: nibsbin/quillmark
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quickstart: getting-started/quickstart.md
+      - Concepts: getting-started/concepts.md
+  - Authoring:
+      - Markdown Syntax: authoring/markdown-syntax.md
+      - YAML Frontmatter: authoring/yaml-frontmatter.md
+      - Cards: authoring/cards.md
+  - Formats:
+      - Creating Quills: format-designer/creating-quills.md
+      - Quill.yaml Reference: format-designer/quill-yaml-reference.md
+      - Typst Backend: format-designer/typst-backend.md
+      - Versioning: format-designer/versioning.md
+  - Integration:
+      - Overview: integration/overview.md
+      - Dynamic Assets: integration/dynamic-assets.md
+      - Validation: integration/validation.md
+      - Python API: integration/python/api.md
+      - JavaScript/WASM API: integration/javascript/api.md
+  - CLI:
+      - Reference: cli/reference.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search

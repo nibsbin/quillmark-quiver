@@ -1,0 +1,197 @@
+//! # Quillmark Engine Integration Tests
+//!
+//! Comprehensive integration tests for the `Quillmark` engine and `Workflow` orchestration.
+//!
+//! ## Test Coverage
+//!
+//! This test suite validates:
+//! - **Engine creation and initialization** - Backend registration
+//! - **Quill registration** - Custom quill loading and management
+//! - **Workflow creation** - Loading workflows by name, by quill object, and from parsed documents
+//! - **End-to-end rendering** - Complete parse → template → compile pipeline
+//! - **Error handling** - Missing quills, invalid backends, validation failures
+//! - **API ergonomics** - Different string types, QuillRef patterns
+//!
+//! ## Related Tests
+//!
+//! - `api_rework_test.rs` - Focused API validation for new workflow methods
+//! - `backend_registration_test.rs` - Custom backend registration scenarios
+//! - `default_values_test.rs` - Default field value behavior
+//!
+//! ## Test Philosophy
+//!
+//! These tests use temporary directories and create custom quills to validate
+//! the full integration of the engine. They complement unit tests in individual
+//! crates by exercising the complete public API surface.
+
+use std::fs;
+use tempfile::TempDir;
+
+use quillmark::{OutputFormat, ParsedDocument, Quill, Quillmark};
+
+#[test]
+fn test_quill_engine_creation() {
+    let engine = Quillmark::new();
+
+    // Check that at least one backend is registered (if default features enabled)
+    let backends = engine.registered_backends();
+    #[cfg(feature = "typst")]
+    assert!(!backends.is_empty());
+
+    // No quills are auto-registered with backend registration
+    let quills = engine.registered_quills();
+    assert!(quills.is_empty());
+}
+
+#[test]
+fn test_quill_engine_register_quill() {
+    let mut engine = Quillmark::new();
+
+    // Create a test quill
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let quill_path = temp_dir.path().join("test_quill");
+
+    fs::create_dir_all(&quill_path).expect("Failed to create quill dir");
+    fs::write(
+        quill_path.join("Quill.yaml"),
+        "Quill:\n  name: \"my_test_quill\"\n  version: \"1.0\"\n  backend: \"typst\"\n  plate_file: \"plate.typ\"\n  description: \"Test quill\"\n",
+    )
+    .expect("Failed to write Quill.yaml");
+    fs::write(quill_path.join("plate.typ"), "Test template").expect("Failed to write plate.typ");
+
+    let quill = Quill::from_path(quill_path).expect("Failed to load quill");
+    engine
+        .register_quill(&quill)
+        .expect("Failed to register quill");
+
+    // Check that quill is registered
+    let quills = engine.registered_quills();
+    assert_eq!(quills.len(), 1);
+    assert!(quills.contains(&"my_test_quill"));
+}
+
+#[test]
+fn test_quill_engine_get_workflow() {
+    let mut engine = Quillmark::new();
+
+    // Create and register a test quill
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let quill_path = temp_dir.path().join("test_quill");
+
+    fs::create_dir_all(&quill_path).expect("Failed to create quill dir");
+    fs::write(
+        quill_path.join("Quill.yaml"),
+        "Quill:\n  name: \"my_test_quill\"\n  version: \"1.0\"\n  backend: \"typst\"\n  plate_file: \"plate.typ\"\n  description: \"Test quill\"\n",
+    )
+    .expect("Failed to write Quill.yaml");
+    fs::write(
+        quill_path.join("plate.typ"),
+        "#rect(width: 1cm, height: 1cm)",
+    )
+    .expect("Failed to write plate.typ");
+
+    let quill = Quill::from_path(quill_path).expect("Failed to load quill");
+    engine
+        .register_quill(&quill)
+        .expect("Failed to register quill");
+
+    // Load workflow by quill name using new load() method
+    let workflow = engine
+        .workflow("my_test_quill")
+        .expect("Failed to load workflow");
+
+    // Verify workflow properties
+    assert!(workflow.quill_ref().starts_with("my_test_quill@"));
+    assert_eq!(workflow.backend_id(), "typst");
+    assert!(workflow.supported_formats().contains(&OutputFormat::Pdf));
+}
+
+#[test]
+fn test_quill_engine_workflow_not_found() {
+    let engine = Quillmark::new();
+
+    // Try to load workflow for non-existent quill
+    let result = engine.workflow("non_existent");
+
+    assert!(result.is_err());
+    match result {
+        Err(quillmark::RenderError::QuillNotFound { diag }) => {
+            assert!(diag.message.contains("not registered"));
+        }
+        _ => panic!("Expected QuillNotFound error"),
+    }
+}
+
+#[test]
+fn test_quill_engine_backend_not_found() {
+    let mut engine = Quillmark::new();
+
+    // Create a quill with non-existent backend
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let quill_path = temp_dir.path().join("test_quill");
+
+    fs::create_dir_all(&quill_path).expect("Failed to create quill dir");
+    fs::write(
+        quill_path.join("Quill.yaml"),
+        "Quill:\n  name: \"bad_backend_quill\"\n  version: \"1.0\"\n  backend: \"non_existent\"\n  plate_file: \"plate.typ\"\n  description: \"Test quill\"\n",
+    )
+    .expect("Failed to write Quill.yaml");
+    fs::write(quill_path.join("plate.typ"), "Test template").expect("Failed to write plate.typ");
+
+    let quill = Quill::from_path(quill_path).expect("Failed to load quill");
+
+    // Try to register quill with non-existent backend - should fail now
+    let result = engine.register_quill(&quill);
+
+    assert!(result.is_err());
+    match result {
+        Err(quillmark::RenderError::QuillConfig { diag }) => {
+            assert!(diag.message.contains("not registered"));
+            assert!(diag.code == Some("quill::backend_not_found".to_string()));
+        }
+        _ => panic!("Expected QuillConfig error with backend not registered message"),
+    }
+}
+
+#[test]
+fn test_quill_engine_end_to_end() {
+    let mut engine = Quillmark::new();
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let quill_path = temp_dir.path().join("test_quill");
+
+    fs::create_dir_all(&quill_path).expect("Failed to create quill dir");
+    fs::write(
+        quill_path.join("Quill.yaml"),
+        "Quill:\n  name: \"my_test_quill\"\n  version: \"1.0\"\n  backend: \"typst\"\n  plate_file: \"plate.typ\"\n  description: \"Test quill\"\n",
+    )
+    .expect("Failed to write Quill.yaml");
+    fs::write(
+        quill_path.join("plate.typ"),
+        "= {{ title | String(default=\"Test\") }}\n\n{{ body | Content }}",
+    )
+    .expect("Failed to write plate.typ");
+
+    let quill = Quill::from_path(quill_path).expect("Failed to load quill");
+    engine
+        .register_quill(&quill)
+        .expect("Failed to register quill");
+
+    let workflow = engine
+        .workflow("my_test_quill")
+        .expect("Failed to load workflow");
+
+    let markdown = r#"---
+QUILL: my_test_quill
+title: Test Document
+---
+
+# Introduction
+
+This is a test document with some **bold** text.
+"#;
+
+    let parsed = ParsedDocument::from_markdown(markdown).expect("Failed to parse markdown");
+
+    let result = workflow.dry_run(&parsed);
+    assert!(result.is_ok(), "Failed to dry-run workflow");
+}
