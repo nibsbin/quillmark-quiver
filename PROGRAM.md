@@ -77,12 +77,15 @@ This applies to both:
 - unqualified refs (e.g. `usaf_memo`)
 - selector refs (e.g. `usaf_memo@1.2`)
 
-No global “highest across all quivers” behavior.
+No global "highest across all quivers" behavior.
+
+**Quiver identity collision:** if two composed quivers share the same `Quiver.yaml.name`, registry construction errors in V1. Nuanced collision handling (warnings, shadowing, merging) is deferred to V2.
 
 ### 5) Semver Selector Rules Are Strict and Small
 
 Supported selector forms only:
 
+- `name` bare — highest version in the first-winning quiver (per §4 precedence)
 - `name@x.y.z` exact
 - `name@x.y` highest `x.y.*`
 - `name@x` highest `x.*.*`
@@ -93,6 +96,12 @@ Not supported in V1:
 - npm operators (`^`, `~`)
 - wildcards (`*`)
 - prereleases and build metadata
+
+Canonical version format (opinionated, applies throughout Quiver usage):
+
+- Canonical form is `x.y.z` — no prereleases, no build metadata, no ranges
+- Binds both `Quiver.yaml.version` and individual quill version directories (`quills/<name>/<version>/`)
+- Non-canonical versions on disk are a validation error
 
 Canonicalization rule:
 
@@ -112,27 +121,36 @@ Quiver owns warm-up:
 
 This keeps engine lifecycle and transport lifecycle decoupled and allows parallel `engine init + quiver warm`.
 
-### 7) Engine Boundary: Correctness in Engine, Performance in Registry
+### 7) Engine Boundary: Canonical Hot Path
 
 Design target for wasm boundary:
 
-- Engine registration should be idempotent by canonical ref
-- Content mismatch on same canonical ref remains an error
-- Engine should operate on canonical refs (no selector/name-only ambiguity)
+- Engine registration is idempotent by canonical ref
+  - Re-registering the same canonical ref (`name@x.y.z`) is a no-op success
+  - Content-mismatch detection is **deferred** for V1: first-write-wins, no hashing. Tightening this later (error on divergent content for the same canonical ref) is additive and non-breaking.
+- Engine exposes a cheap existence check: `has_quill(canonical_ref) -> bool` (wasm: `engine.hasQuill(ref)`), so the library can skip boundary transfers on the hot path.
+- The engine **remains selector-capable** for standalone consumers. Quiver does not rely on that capability; it resolves selectors library-side and passes canonical refs across the boundary as its own convention. This is *not* engine-enforced — the engine continues to accept selector refs from markdown and resolve them against registered quills, so non-quiver WASM consumers are unaffected.
+
+Render API stays unchanged. Selector-to-canonical rewriting happens library-side:
+
+1. `parseMarkdown` returns the raw author ref verbatim
+2. Library resolves selector → canonical against the quiver manifest
+3. Library constructs a new `ParsedDocument` with `quillRef` set to the canonical ref (original parse result is not mutated)
+4. Library ensures the canonical ref is registered (idempotent), then calls the existing `render`
+
+This trades a minor semantic shift (`ParsedDocument.quillRef` carries the canonical ref at render time, not the author's literal string) for zero growth in engine render surface. The original author ref is preserved on the pre-resolve object for debugging/logging.
 
 Performance strategy:
 
-- Registry tracks which canonical refs it has already sent across WASM boundary
+- Registry tracks which canonical refs it has already sent across WASM boundary (via `hasQuill` or its own in-process cache)
 - Avoid repeated boundary transfers for hot path resolves
 
-This avoids expensive repeated payload crossings while preserving correctness.
+Dev-mode note: first-write-wins means hot-reloading edited content under an unchanged canonical ref will silently serve the original bytes. For V1, authors should bump the version during iteration; explicit `unregister` / `reload` can be added later without breaking the V1 contract.
 
 ### 8) Ref Parsing Boundary
 
 - **Markdown parsing is engine responsibility**
-- **Ref-string parsing** (`name@selector`) is library responsibility
-
-Library still needs a single shared ref parser for direct JS API usage (`resolve`, `warm`, validation inputs).
+- **Ref-string parsing** (`name@selector`) is a library responsibility for quiver's own API (`resolve`, `warm`, validation). The engine retains its own ref parser for markdown; quiver does not depend on it.
 
 ### 9) Distribution Strategy
 
@@ -169,7 +187,7 @@ V1 intentionally carries these proven behaviors:
 4. **HTTP loading** as a Packed transport
 5. **Source filesystem loading** as first-class dev loop
 6. **Packed filesystem loading** as a new capability
-7. **Typed errors** (`RegistryError`) with expanded quiver/transport codes
+7. **Typed errors** (`QuiverError`, renamed from `RegistryError`) with expanded quiver/transport codes
 8. **Concurrency coalescing** for in-flight loads
 9. **Engine cache fast path**
 10. **Preload/fail-fast helpers** where still useful
@@ -229,6 +247,7 @@ V1 packaging behavior:
 - inter-quiver dependency graph in `Quiver.yaml`
 - marketplace/discovery service
 - advanced warm strategies (hot lists, adaptive prefetch), beyond API-compatible hooks
+- multi-quiver name collision resolution (V1 errors on duplicate `Quiver.yaml.name`; warnings/shadowing/merging deferred)
 
 ---
 
@@ -238,10 +257,10 @@ V1 packaging behavior:
 2. Final `Quiver.yaml` schema and unknown-field policy
 3. Canonical ref grammar and parser API contract
 4. Exact warning policy for shadowed refs across quivers
-5. Engine API migration plan for canonical-only/idempotent registration behavior
-6. Validation API shape consolidation
-7. Pack artifact directory structure and compatibility guarantees
-8. Node/browser package entrypoint split for the new package name
+5. Validation API shape consolidation
+6. Pack artifact directory structure and compatibility guarantees
+7. Node/browser package entrypoint split for the new package name
+8. Final exported type names under `@quillmark/quiver` (e.g. `QuillRegistry` vs `QuiverRegistry`, `Quiver` class shape — see §4, §6)
 
 ---
 
