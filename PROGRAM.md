@@ -116,9 +116,22 @@ This keeps engine lifecycle and transport lifecycle decoupled and allows paralle
 
 Design target for wasm boundary:
 
-- Engine registration should be idempotent by canonical ref
-- Content mismatch on same canonical ref remains an error
-- Engine should operate on canonical refs (no selector/name-only ambiguity)
+- Engine registration is idempotent by canonical ref
+  - Re-registering the same canonical ref (`name@x.y.z`) with byte-identical content is a no-op success, not an error
+  - Re-registering the same canonical ref with differing content is an error (distinct code; see Error Model)
+- Engine stores and looks up strictly by canonical ref
+  - No selector forms (`@x.y`, `@x`) or bare names cross the boundary
+  - Selector resolution is a library responsibility (see §8)
+- Engine exposes a cheap existence check for canonical refs, or makes the idempotent-register no-op path cheap enough that no pre-check is needed
+
+Render API stays unchanged. Selector-to-canonical rewriting happens library-side:
+
+1. `parseMarkdown` returns the raw author ref verbatim
+2. Library resolves selector → canonical against the quiver manifest
+3. Library constructs a new `ParsedDocument` with `quillRef` set to the canonical ref (original parse result is not mutated)
+4. Library ensures the canonical ref is registered (idempotent), then calls the existing `render`
+
+This trades a minor semantic shift (`ParsedDocument.quillRef` carries the canonical ref at render time, not the author's literal string) for zero growth in engine render surface. The original author ref is preserved on the pre-resolve object for debugging/logging.
 
 Performance strategy:
 
@@ -200,6 +213,7 @@ Retain typed error catalog and add clear V1 codes such as:
 - `transport_error`
 - `manifest_invalid`
 - `version_mismatch` (for pack/publish validation paths)
+- `quill_content_mismatch` (same canonical ref registered with differing content)
 
 Errors should include offending ref/version/quiver identifiers when available.
 
@@ -238,10 +252,9 @@ V1 packaging behavior:
 2. Final `Quiver.yaml` schema and unknown-field policy
 3. Canonical ref grammar and parser API contract
 4. Exact warning policy for shadowed refs across quivers
-5. Engine API migration plan for canonical-only/idempotent registration behavior
-6. Validation API shape consolidation
-7. Pack artifact directory structure and compatibility guarantees
-8. Node/browser package entrypoint split for the new package name
+5. Validation API shape consolidation
+6. Pack artifact directory structure and compatibility guarantees
+7. Node/browser package entrypoint split for the new package name
 
 ---
 
