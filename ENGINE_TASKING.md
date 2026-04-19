@@ -2,60 +2,59 @@
 
 **Audience:** Quillmark engine maintainer
 **Consumer:** `@quillmark/quiver` (registry rewrite; successor to `@quillmark/registry`)
-**Design source:** `PROGRAM.md §7, §8` in `nibsbin/quillmark-quiver`
+**Design source:** `PROGRAM.md §7` in `nibsbin/quillmark-quiver`
 
 ## Background
 
 Quiver composes multiple versioned quill sources and resolves selector refs (`name@x.y`, bare `name`) to canonical refs (`name@x.y.z`) against its own manifest before calling the engine. On hot paths it may re-enter `registerQuill` with the same canonical ref many times per session.
 
-We want the engine boundary to be **correct by canonical ref** and **cheap on repeated entry**. Selector grammar stays in the library — the engine never sees non-canonical refs.
+Quiver does not need the engine's existing selector-resolution capability changed or removed — standalone WASM consumers that pass selector refs through `parseMarkdown → render` keep working. Quiver simply hands canonical refs across the boundary as its own convention.
+
+We need two small additions to support the hot path.
 
 ## Tasks
 
-### 1. Idempotent `register_quill` on byte-identical content
+### 1. Idempotent `register_quill` on duplicate canonical ref
 
 Today `register_quill` errors with `RenderError::QuillConfig { "already registered" }` on any duplicate `(name, version)` (see `crates/quillmark/tests/versioning_test.rs::test_version_collision_error`).
 
-**Change:** registering the same canonical ref with byte-identical content returns `Ok` as a no-op. Subsequent calls must be cheap — no rehash, no backend re-init.
+**Change:** re-registering the same canonical ref (`name@x.y.z`) returns `Ok` as a no-op. **First-write-wins:** no content comparison, no hashing. Subsequent calls must be cheap (no payload re-read, no backend re-init).
 
-### 2. Content-mismatch as a distinct error
+Rationale for not hashing: canonical refs are content-identifiers by convention; quiver's own cache enforces that. If divergent bytes ever reach `registerQuill`, something upstream is already broken. We can tighten to "error on content mismatch" later as a pure additive change.
 
-Registering the same canonical ref with **differing** content must still error, but with a distinct, machine-matchable code (proposed variant name: `QuillContentMismatch`). Error payload should include the conflicting canonical ref.
+### 2. Cheap existence check
 
-### 3. Canonical-only engine boundary
+Add:
 
-`register_quill`, `get_quill_info`, `render`, and any other ref-consuming APIs operate strictly on canonical `name@x.y.z`.
+```rust
+impl Quillmark {
+    pub fn has_quill(&self, canonical_ref: &str) -> bool;
+}
+```
 
-- Reject selector forms (`@x.y`, `@x`) at the boundary.
-- Do not add selector resolution to the engine — the library handles it and only hands canonical refs across.
-- If an "unversioned quill = bare name" path exists today, prefer removing it; if kept, document it clearly.
+WASM binding: `engine.hasQuill(ref: string): boolean` in `crates/bindings/wasm/src/engine.rs`.
 
-### 4. Cheap existence check
-
-Let the library skip boundary transfers for already-registered canonical refs. Either:
-
-- **(a)** Add `fn has_quill(&self, canonical_ref: &str) -> bool` (wasm: `engine.hasQuill(ref)`), or
-- **(b)** Ensure task 1's no-op path is cheap enough that the library can call `register_quill` unconditionally with no measurable cost.
-
-Either is acceptable; (b) may be simpler if the no-op cost is already near zero.
+Semantics: `true` iff a quill is registered under the exact canonical ref `name@x.y.z`. No selector resolution — it's a direct lookup on the engine's registered set. This lets quiver short-circuit the boundary transfer on repeated resolves without paying even the no-op `register_quill` cost.
 
 ## Out of scope
 
-- Selector grammar / parsing (library owns this)
-- Any change to `render` or `parseMarkdown` API shape — the library rewrites `ParsedDocument.quillRef` to canonical (by constructing a new value) before calling `render`. No new render overload is needed.
-- Prerelease / build-metadata / semver ranges
+- Changes to selector parsing or resolution inside the engine — leave the existing `QuillReference` / `VersionSelector` behavior alone. Quiver does not rely on it, but other consumers do.
+- Content-mismatch detection on duplicate register (deferred; see §1 rationale).
+- Any change to `render`, `parseMarkdown`, or `get_quill_info` API shape. Quiver rewrites `ParsedDocument.quillRef` to canonical by constructing a new value before calling `render`; no new render overload is needed.
+- Prerelease / build-metadata / semver range support.
 
 ## Test updates
 
-In `crates/quillmark/tests/versioning_test.rs`, split `test_version_collision_error` into:
+In `crates/quillmark/tests/versioning_test.rs`:
 
-- `test_register_same_canonical_is_noop` — identical content, second call returns `Ok`
-- `test_register_same_canonical_content_mismatch` — differing content, errors with the new code
+- Replace `test_version_collision_error` with `test_register_same_canonical_is_noop` — register `name@1.0`, register again with identical content, assert `Ok` on both and that the engine reports one registered quill.
 
-Add a wasm-level test in `crates/bindings/wasm/tests/wasm_bindings.rs` covering (a) `hasQuill` or (b) repeated `registerQuill` idempotence.
+In `crates/bindings/wasm/tests/wasm_bindings.rs`:
+
+- Add a test covering `hasQuill`: returns `false` before register, `true` after, `false` for an unregistered canonical ref.
 
 ## Done when
 
-- Library can call `registerQuill(canonical)` on every render without error or cost concerns.
-- A mismatched re-registration surfaces a code distinguishable from other `QuillConfig` failures.
-- Engine rejects non-canonical refs at the boundary with a clear diagnostic.
+- Quiver can call `registerQuill(canonical)` repeatedly with no error and negligible cost.
+- `engine.hasQuill(canonicalRef)` returns a correct boolean from JS without any rendering or resolution side effects.
+- No existing standalone-consumer tests regress (selector refs in markdown still render).

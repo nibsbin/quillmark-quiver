@@ -117,12 +117,10 @@ This keeps engine lifecycle and transport lifecycle decoupled and allows paralle
 Design target for wasm boundary:
 
 - Engine registration is idempotent by canonical ref
-  - Re-registering the same canonical ref (`name@x.y.z`) with byte-identical content is a no-op success, not an error
-  - Re-registering the same canonical ref with differing content is an error (distinct code; see Error Model)
-- Engine stores and looks up strictly by canonical ref
-  - No selector forms (`@x.y`, `@x`) or bare names cross the boundary
-  - Selector resolution is a library responsibility (see §8)
-- Engine exposes a cheap existence check for canonical refs, or makes the idempotent-register no-op path cheap enough that no pre-check is needed
+  - Re-registering the same canonical ref (`name@x.y.z`) is a no-op success
+  - Content-mismatch detection is **deferred** for V1: first-write-wins, no hashing. Tightening this later (error on divergent content for the same canonical ref) is additive and non-breaking.
+- Engine exposes a cheap existence check: `has_quill(canonical_ref) -> bool` (wasm: `engine.hasQuill(ref)`), so the library can skip boundary transfers on the hot path.
+- The engine **remains selector-capable** for standalone consumers. Quiver does not rely on that capability; it resolves selectors library-side and passes canonical refs across the boundary as its own convention. This is *not* engine-enforced — the engine continues to accept selector refs from markdown and resolve them against registered quills, so non-quiver WASM consumers are unaffected.
 
 Render API stays unchanged. Selector-to-canonical rewriting happens library-side:
 
@@ -135,10 +133,10 @@ This trades a minor semantic shift (`ParsedDocument.quillRef` carries the canoni
 
 Performance strategy:
 
-- Registry tracks which canonical refs it has already sent across WASM boundary
+- Registry tracks which canonical refs it has already sent across WASM boundary (via `hasQuill` or its own in-process cache)
 - Avoid repeated boundary transfers for hot path resolves
 
-This avoids expensive repeated payload crossings while preserving correctness.
+Dev-mode note: first-write-wins means hot-reloading edited content under an unchanged canonical ref will silently serve the original bytes. For V1, authors should bump the version during iteration; explicit `unregister` / `reload` can be added later without breaking the V1 contract.
 
 ### 8) Ref Parsing Boundary
 
@@ -213,7 +211,6 @@ Retain typed error catalog and add clear V1 codes such as:
 - `transport_error`
 - `manifest_invalid`
 - `version_mismatch` (for pack/publish validation paths)
-- `quill_content_mismatch` (same canonical ref registered with differing content)
 
 Errors should include offending ref/version/quiver identifiers when available.
 
