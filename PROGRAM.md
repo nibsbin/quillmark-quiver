@@ -77,12 +77,15 @@ This applies to both:
 - unqualified refs (e.g. `usaf_memo`)
 - selector refs (e.g. `usaf_memo@1.2`)
 
-No global “highest across all quivers” behavior.
+No global "highest across all quivers" behavior.
+
+**Quiver identity collision:** if two composed quivers share the same `Quiver.yaml.name`, registry construction errors in V1. Nuanced collision handling (warnings, shadowing, merging) is deferred to V2.
 
 ### 5) Semver Selector Rules Are Strict and Small
 
 Supported selector forms only:
 
+- `name` bare — highest version in the first-winning quiver (per §4 precedence)
 - `name@x.y.z` exact
 - `name@x.y` highest `x.y.*`
 - `name@x` highest `x.*.*`
@@ -93,6 +96,12 @@ Not supported in V1:
 - npm operators (`^`, `~`)
 - wildcards (`*`)
 - prereleases and build metadata
+
+Canonical version format (opinionated, applies throughout Quiver usage):
+
+- Canonical form is `x.y.z` — no prereleases, no build metadata, no ranges
+- Binds both `Quiver.yaml.version` and individual quill version directories (`quills/<name>/<version>/`)
+- Non-canonical versions on disk are a validation error
 
 Canonicalization rule:
 
@@ -112,7 +121,7 @@ Quiver owns warm-up:
 
 This keeps engine lifecycle and transport lifecycle decoupled and allows parallel `engine init + quiver warm`.
 
-### 7) Engine Boundary: Correctness in Engine, Performance in Registry
+### 7) Engine Boundary: Canonical Hot Path
 
 Design target for wasm boundary:
 
@@ -141,9 +150,7 @@ Dev-mode note: first-write-wins means hot-reloading edited content under an unch
 ### 8) Ref Parsing Boundary
 
 - **Markdown parsing is engine responsibility**
-- **Ref-string parsing** (`name@selector`) is library responsibility
-
-Library still needs a single shared ref parser for direct JS API usage (`resolve`, `warm`, validation inputs).
+- **Ref-string parsing** (`name@selector`) is a library responsibility for quiver's own API (`resolve`, `warm`, validation). The engine retains its own ref parser for markdown; quiver does not depend on it.
 
 ### 9) Distribution Strategy
 
@@ -180,7 +187,7 @@ V1 intentionally carries these proven behaviors:
 4. **HTTP loading** as a Packed transport
 5. **Source filesystem loading** as first-class dev loop
 6. **Packed filesystem loading** as a new capability
-7. **Typed errors** (`RegistryError`) with expanded quiver/transport codes
+7. **Typed errors** (`QuiverError`, renamed from `RegistryError`) with expanded quiver/transport codes
 8. **Concurrency coalescing** for in-flight loads
 9. **Engine cache fast path**
 10. **Preload/fail-fast helpers** where still useful
@@ -240,6 +247,7 @@ V1 packaging behavior:
 - inter-quiver dependency graph in `Quiver.yaml`
 - marketplace/discovery service
 - advanced warm strategies (hot lists, adaptive prefetch), beyond API-compatible hooks
+- multi-quiver name collision resolution (V1 errors on duplicate `Quiver.yaml.name`; warnings/shadowing/merging deferred)
 
 ---
 
@@ -252,6 +260,7 @@ V1 packaging behavior:
 5. Validation API shape consolidation
 6. Pack artifact directory structure and compatibility guarantees
 7. Node/browser package entrypoint split for the new package name
+8. Final exported type names under `@quillmark/quiver` (e.g. `QuillRegistry` vs `QuiverRegistry`, `Quiver` class shape — see §4, §6)
 
 ---
 
