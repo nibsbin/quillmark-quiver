@@ -48,10 +48,12 @@ Source Quivers require a root `Quiver.yaml` as runtime metadata source of truth.
 Minimum fields for V1:
 
 - `name` (required)
-- `version` (required; canonical semver `x.y.z` only)
 - `description` (optional)
+- `version` (reserved/experimental; optional; no load-bearing responsibilities in V1)
 
 `name` is runtime namespace identity and may differ from npm package name.
+
+`version` is accepted if present but is not consumed by resolution, caching, engine registration, or any other runtime path. It exists only as a reserved field for possible future use (e.g. cross-quiver dependency declarations). Tooling must not rely on it and must not error on its absence. For npm-channel identity, `package.json.version` is authoritative; for packed-artifact identity, the hashed manifest is authoritative.
 
 ### 3) `QuillSource` Becomes Quiver-Centric
 
@@ -165,15 +167,18 @@ Important clarification:
 - npm/git are developer distribution channels
 - packed artifacts are runtime delivery artifacts
 
-### 10) `package.json` + `Quiver.yaml` Drift Policy (No CLI in V1)
+### 10) No Canonical Quiver Version in V1
 
-Known risk: duplicated `version` field.
+`Quiver.yaml.version` is reserved/experimental with no load-bearing responsibilities (see decision #2). Because nothing in V1 consumes a quiver-level version, there is no canonical Quiver version and therefore no drift to police between `Quiver.yaml` and `package.json`.
 
-Given **Quiver CLI is out of scope for V1**, enforce drift with validation instead of automation:
+Consequences:
 
-- `Quiver.yaml` is runtime source of truth
-- packing/publish path must fail if `package.json.version !== Quiver.yaml.version`
-- contributor docs must explicitly require updating both together
+- No pack/publish-time version equality check
+- No `version_mismatch` error path tied to quiver-level versioning
+- `package.json.version` is authoritative for the npm channel
+- Packed-artifact identity is the hashed manifest, not a YAML field
+
+If a future feature requires a canonical quiver version (e.g. cross-quiver dependencies), the field and associated validation policy can be promoted then.
 
 ---
 
@@ -217,7 +222,6 @@ Retain typed error catalog and add clear V1 codes such as:
 - `quiver_invalid`
 - `transport_error`
 - `manifest_invalid`
-- `version_mismatch` (for pack/publish validation paths)
 
 Errors should include offending ref/version/quiver identifiers when available.
 
@@ -280,4 +284,4 @@ Local copies in this repo for implementation and engine contract work:
 - Multi-quiver resolution is deterministic and matches precedence-hard-filter rules
 - Selector behavior is predictable and explicitly documented
 - Existing operational capabilities are preserved while public API surface is smaller and clearer
-- V1 ships without CLI dependency while still preventing version drift at pack/publish time
+- V1 ships without CLI dependency; no canonical quiver-level version means no drift surface to police
