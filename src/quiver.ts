@@ -7,45 +7,11 @@
 
 import { QuiverError } from "./errors.js";
 import { assertNode } from "./assert-node.js";
-import type { FileTree } from "./types.js";
 import type { PackOptions } from "./pack.js";
-import type { QuiverLoader } from "./quiver-internal.js";
-import { PACKED_FACTORY } from "./quiver-internal.js";
 
-/**
- * Internal sentinel used to restrict direct construction.
- * Pass to the constructor to prove you went through a factory.
- */
-const INTERNAL = Symbol("Quiver.internal");
-
-/**
- * Source-backed QuiverLoader: reads files from disk via source-loader.
- * Node-only (dynamic imports used inside loadTree to stay browser-safe at
- * module evaluation time).
- */
-class SourceLoader implements QuiverLoader {
-  constructor(
-    private readonly rootDir: string,
-    private readonly catalog: ReadonlyMap<string, readonly string[]>,
-    private readonly quiverName: string,
-  ) {}
-
-  async loadTree(name: string, version: string): Promise<FileTree> {
-    const versions = this.catalog.get(name);
-    if (!versions || !versions.includes(version)) {
-      throw new QuiverError(
-        "transport_error",
-        `Quill "${name}@${version}" not found in quiver "${this.quiverName}"`,
-        { quiverName: this.quiverName, version, ref: `${name}@${version}` },
-      );
-    }
-
-    const { join } = await import("node:path");
-    const { readQuillTree } = await import("./source-loader.js");
-
-    const quillDir = join(this.rootDir, "quills", name, version);
-    return readQuillTree(quillDir);
-  }
+/** @internal Internal loader strategy: source or packed. */
+export interface QuiverLoader {
+  loadTree(name: string, version: string): Promise<Map<string, Uint8Array>>;
 }
 
 export class Quiver {
@@ -55,42 +21,27 @@ export class Quiver {
   readonly #loader: QuiverLoader;
 
   /**
-   * Private-ish constructor. Use static factory methods.
-   * The `_internal` sentinel prevents accidental direct instantiation.
+   * Private constructor — use static factory methods.
+   * TS prevents external `new Quiver(...)` at compile time.
+   * Static methods inside can still call it.
    */
-  constructor(
-    _internal: typeof INTERNAL,
+  private constructor(
     name: string,
     catalog: Map<string, string[]>,
     loader: QuiverLoader,
   ) {
-    if (_internal !== INTERNAL) {
-      throw new QuiverError(
-        "quiver_invalid",
-        "Quiver must be created via a factory method (e.g. Quiver.fromSourceDir)",
-      );
-    }
     this.name = name;
-
-    // Freeze catalog — Quiver instances are immutable after construction.
-    const frozen = new Map<string, readonly string[]>();
-    for (const [k, v] of catalog) {
-      frozen.set(k, Object.freeze([...v]));
-    }
-    this.#catalog = frozen;
+    this.#catalog = new Map(catalog);
     this.#loader = loader;
   }
 
-  /**
-   * Internal factory used by loadPackedQuiver to create a packed-backed Quiver.
-   * Keyed by PACKED_FACTORY symbol — not accessible from outside this package.
-   */
-  static [PACKED_FACTORY](
+  /** @internal Used by loadPackedQuiver. Not part of the public API. */
+  static _fromLoader(
     name: string,
     catalog: Map<string, string[]>,
     loader: QuiverLoader,
   ): Quiver {
-    return new Quiver(INTERNAL, name, catalog, loader);
+    return new Quiver(name, catalog, loader);
   }
 
   /**
@@ -104,10 +55,12 @@ export class Quiver {
    */
   static async fromSourceDir(path: string): Promise<Quiver> {
     assertNode("Quiver.fromSourceDir");
-    const { scanSourceQuiver } = await import("./source-loader.js");
+    const { scanSourceQuiver, SourceLoader } = await import(
+      "./source-loader.js"
+    );
     const { meta, catalog } = await scanSourceQuiver(path);
-    const loader = new SourceLoader(path, catalog, meta.name);
-    return new Quiver(INTERNAL, meta.name, catalog, loader);
+    const loader = new SourceLoader(path);
+    return new Quiver(meta.name, catalog, loader);
   }
 
   /**
@@ -178,7 +131,7 @@ export class Quiver {
    *
    * Throws `transport_error` if name/version not in catalog or I/O fails.
    */
-  async loadTree(name: string, version: string): Promise<FileTree> {
+  async loadTree(name: string, version: string): Promise<Map<string, Uint8Array>> {
     const versions = this.#catalog.get(name);
     if (!versions || !versions.includes(version)) {
       throw new QuiverError(

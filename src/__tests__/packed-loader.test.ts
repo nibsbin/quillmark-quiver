@@ -142,7 +142,7 @@ describe("loadPackedQuiver — loadTree rehydration", () => {
 
   it("loadTree rehydrates fonts at correct paths", async () => {
     const fontBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    const fontHash = "fakehash001";
+    const fontHash = "aabbccddeeff00112233445566778899";
 
     const memoBundle = makeBundle({ "Quill.yaml": "name: memo\n" });
     const manifestBytes = makeManifest("sample", [
@@ -178,7 +178,7 @@ describe("loadPackedQuiver — loadTree rehydration", () => {
 
 describe("loadPackedQuiver — font coalescing", () => {
   it("two concurrent loadTree calls sharing a font fetch it exactly once", async () => {
-    const fontHash = "sharedhash";
+    const fontHash = "deadbeefdeadbeefdeadbeefdeadbeef";
     const fontBytes = new Uint8Array([1, 2, 3]);
 
     const bundleA = makeBundle({ "Quill.yaml": "name: quillA\n" });
@@ -309,7 +309,7 @@ describe("loadPackedQuiver — invalid manifest", () => {
 describe("loadPackedQuiver — missing bundle or store entry", () => {
   it("manifest references a bundle zip that transport can't fetch → transport_error", async () => {
     const manifestBytes = makeManifest("test", [
-      { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.missing.zip" },
+      { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.deadbeef.zip" },
     ]);
     const transport = new MemTransport({
       "Quiver.json": makePointer("manifest.abc.json"),
@@ -330,19 +330,157 @@ describe("loadPackedQuiver — missing bundle or store entry", () => {
         name: "foo",
         version: "1.0.0",
         bundle: "foo@1.0.0.aaa.zip",
-        fonts: { "fonts/missing.ttf": "doesnotexist" },
+        fonts: { "fonts/missing.ttf": "cafebabecafebabecafebabecafebabe" },
       },
     ]);
     const transport = new MemTransport({
       "Quiver.json": makePointer("manifest.abc.json"),
       "manifest.abc.json": manifestBytes,
       "foo@1.0.0.aaa.zip": memoBundle,
-      // store/doesnotexist NOT included
+      // store/cafebabecafebabecafebabecafebabe NOT included
     });
 
     const q = await loadPackedQuiver(transport);
     await expect(q.loadTree("foo", "1.0.0")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
+  });
+});
+
+describe("loadPackedQuiver — path validation (security)", () => {
+  it("pointer manifest with path traversal → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": enc.encode(
+        JSON.stringify({ manifest: "../../etc/passwd" }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+
+  it("pointer manifest with absolute path → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": enc.encode(
+        JSON.stringify({ manifest: "/etc/passwd" }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+
+  it("manifest bundle with path traversal → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": makePointer("manifest.abc123.json"),
+      "manifest.abc123.json": enc.encode(
+        JSON.stringify({
+          version: 1,
+          name: "test",
+          quills: [
+            {
+              name: "evil",
+              version: "1.0.0",
+              bundle: "../../etc/passwd",
+              fonts: {},
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+
+  it("manifest font hash with path traversal → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": makePointer("manifest.abc123.json"),
+      "manifest.abc123.json": enc.encode(
+        JSON.stringify({
+          version: 1,
+          name: "test",
+          quills: [
+            {
+              name: "evil",
+              version: "1.0.0",
+              bundle: "evil@1.0.0.aabbcc.zip",
+              fonts: { "fonts/body.ttf": "../../etc/passwd" },
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+
+  it("manifest font hash that is not 32 hex chars → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": makePointer("manifest.abc123.json"),
+      "manifest.abc123.json": enc.encode(
+        JSON.stringify({
+          version: 1,
+          name: "test",
+          quills: [
+            {
+              name: "evil",
+              version: "1.0.0",
+              bundle: "evil@1.0.0.aabbcc.zip",
+              fonts: { "fonts/body.ttf": "tooshort" },
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+});
+
+describe("loadPackedQuiver — duplicate entry detection", () => {
+  it("duplicate name@version in manifest → quiver_invalid", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": makePointer("manifest.abc123.json"),
+      "manifest.abc123.json": enc.encode(
+        JSON.stringify({
+          version: 1,
+          name: "test",
+          quills: [
+            {
+              name: "foo",
+              version: "1.0.0",
+              bundle: "foo@1.0.0.aabbcc.zip",
+              fonts: {},
+            },
+            {
+              name: "foo",
+              version: "1.0.0",
+              bundle: "foo@1.0.0.ddeeff.zip",
+              fonts: {},
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+
+  it("same name but different versions is not a duplicate", async () => {
+    const transport = new MemTransport({
+      "Quiver.json": makePointer("manifest.abc123.json"),
+      "manifest.abc123.json": makeManifest("test", [
+        { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.aabbcc.zip" },
+        { name: "foo", version: "2.0.0", bundle: "foo@2.0.0.ddeeff.zip" },
+      ]),
+      "foo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: foo\n" }),
+      "foo@2.0.0.ddeeff.zip": makeBundle({ "Quill.yaml": "name: foo\n" }),
+    });
+    const q = await loadPackedQuiver(transport);
+    expect(q.versionsOf("foo")).toEqual(["2.0.0", "1.0.0"]);
   });
 });

@@ -67,4 +67,27 @@ describe("packFiles determinism", () => {
     const output = unpackFiles(zipped);
     expect(Object.keys(output)).toHaveLength(0);
   });
+
+  it("produces UTC-epoch mtime bytes — no local-timezone offset in zip header", () => {
+    // The DOS mtime for 1980-01-01 00:00:00 UTC encodes as 0x0021 (date) 0x0000 (time).
+    // If local time were used instead, machines in non-UTC zones would produce
+    // different bytes. We verify the zip header directly.
+    const zipped = packFiles({ "file.txt": enc.encode("x") });
+    // Locate the local file header signature (PK\x03\x04 = 0x04034b50 little-endian).
+    const sig = [0x50, 0x4b, 0x03, 0x04];
+    let headerOffset = -1;
+    for (let i = 0; i <= zipped.length - sig.length; i++) {
+      if (sig.every((b, j) => zipped[i + j] === b)) {
+        headerOffset = i;
+        break;
+      }
+    }
+    expect(headerOffset).toBeGreaterThanOrEqual(0);
+    // Bytes 10–11 = last-mod time (DOS time), bytes 12–13 = last-mod date (DOS date).
+    const dosTime = (zipped[headerOffset + 11]! << 8) | zipped[headerOffset + 10]!;
+    const dosDate = (zipped[headerOffset + 13]! << 8) | zipped[headerOffset + 12]!;
+    // 1980-01-01 00:00:00 → DOS time = 0x0000, DOS date = 0x0021.
+    expect(dosTime).toBe(0x0000);
+    expect(dosDate).toBe(0x0021);
+  });
 });

@@ -1,10 +1,16 @@
 /**
- * Minimal structural types matching the spec'd @quillmark/wasm >=0.57.0 API.
- * The consumer supplies the real Quillmark engine as a peer dep.
+ * Minimal structural types matching @quillmark/wasm >=0.57.0 (verified against 0.58.0).
  *
- * These types are INTERNAL — never re-exported from index.ts.
- * They decouple registry.ts from the installed @quillmark/wasm@0.55.0,
- * which has the old API (registerQuill / engine.render).
+ * Shape:
+ *   class Quillmark { quill(tree: Map<string, Uint8Array>): Quill }
+ *   class Quill     { render(parsed, opts): RenderResult; open(parsed): RenderSession }
+ *
+ * These types are INTERNAL — never re-exported from index.ts. They exist so
+ * registry.ts never imports from @quillmark/wasm directly and so test doubles
+ * can satisfy the contract without pulling the real WASM module.
+ *
+ * Call-site note: Quiver never invokes `render` or `open` itself; consumers do
+ * after `getQuill()`. The loose `unknown` parameter typing is intentional.
  */
 
 export interface QuillmarkLike {
@@ -13,5 +19,5 @@ export interface QuillmarkLike {
 
 export interface QuillLike {
   render(parsed: unknown, opts?: unknown): unknown;
-  // open(parsed) → session — optional, not consumed by registry
+  open?: (parsed: unknown) => unknown;
 }

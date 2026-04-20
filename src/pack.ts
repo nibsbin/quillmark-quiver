@@ -8,12 +8,9 @@
 
 import { QuiverError } from "./errors.js";
 import { packFiles } from "./bundle.js";
-import { md5, md5Prefix6 } from "./hash.js";
 
 /** Reserved for future pack options (e.g. compression level, filters). */
-export interface PackOptions {
-  // Empty in V1.
-}
+export type PackOptions = Record<string, never>;
 
 /** Font file extensions recognised by the packer (case-insensitive). */
 const FONT_EXT = /\.(ttf|otf|woff|woff2)$/i;
@@ -44,8 +41,8 @@ export async function packQuiver(
     mkdir,
     rm,
     writeFile,
-    access,
   } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
 
   const { scanSourceQuiver, readQuillTree } = await import("./source-loader.js");
 
@@ -94,28 +91,17 @@ export async function packQuiver(
       // c. Dehydrate fonts into store/.
       const fonts: Record<string, string> = {};
       for (const [path, bytes] of fontEntries) {
-        const hash = await md5(bytes);
+        const hash = createHash("md5").update(bytes).digest("hex");
         const storePath = join(outDir, "store", hash);
 
-        // Skip write if the file already exists (deduplication).
-        let exists = false;
         try {
-          await access(storePath);
-          exists = true;
-        } catch {
-          // Does not exist — will write.
-        }
-
-        if (!exists) {
-          try {
-            await writeFile(storePath, bytes);
-          } catch (err) {
-            throw new QuiverError(
-              "transport_error",
-              `Failed to write font store entry "${storePath}": ${(err as Error).message}`,
-              { cause: err },
-            );
-          }
+          await writeFile(storePath, bytes);
+        } catch (err) {
+          throw new QuiverError(
+            "transport_error",
+            `Failed to write font store entry "${storePath}": ${(err as Error).message}`,
+            { cause: err },
+          );
         }
 
         fonts[path] = hash;
@@ -129,7 +115,7 @@ export async function packQuiver(
       const zipBytes = packFiles(contentRecord);
 
       // e–f. Compute bundle hash and name.
-      const bundleHash = await md5Prefix6(zipBytes);
+      const bundleHash = createHash("md5").update(zipBytes).digest("hex").slice(0, 6);
       const bundleName = `${quillName}@${version}.${bundleHash}.zip`;
 
       // g. Write bundle zip.
@@ -157,7 +143,7 @@ export async function packQuiver(
   };
 
   const manifestJson = JSON.stringify(manifest, null, 2);
-  const manifestHash = await md5Prefix6(manifestJson);
+  const manifestHash = createHash("md5").update(manifestJson).digest("hex").slice(0, 6);
   const manifestFileName = `manifest.${manifestHash}.json`;
   const manifestPath = join(outDir, manifestFileName);
 

@@ -8,7 +8,7 @@ import { zipSync, unzipSync } from "fflate";
  * Fixed epoch mtime for deterministic zip output.
  * All entries get this timestamp so byte-identical inputs → byte-identical zips.
  */
-const ZIP_EPOCH = new Date(1980, 0, 1);
+const ZIP_EPOCH = new Date(Date.UTC(1980, 0, 1));
 
 /**
  * Pack a flat file map into a deterministic zip.

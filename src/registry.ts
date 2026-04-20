@@ -8,11 +8,8 @@ export class QuiverRegistry {
   readonly #engine: QuillmarkLike;
   readonly #quivers: readonly Quiver[];
 
-  /** Cache: canonical ref → resolved QuillLike instance. */
-  readonly #cache: Map<string, QuillLike> = new Map();
-
-  /** In-flight dedup: canonical ref → pending Promise<QuillLike>. */
-  readonly #inflight: Map<string, Promise<QuillLike>> = new Map();
+  /** Cache: canonical ref → pending or resolved Promise<QuillLike>. */
+  readonly #cache: Map<string, Promise<QuillLike>> = new Map();
 
   constructor(args: { engine: QuillmarkLike; quivers: Quiver[] }) {
     this.#engine = args.engine;
@@ -85,26 +82,15 @@ export class QuiverRegistry {
    *   - propagates engine errors from engine.quill() unchanged (not wrapped)
    */
   async getQuill(canonicalRef: string): Promise<QuillLike> {
-    // Fast path: already cached.
-    const cached = this.#cache.get(canonicalRef);
-    if (cached !== undefined) return cached;
-
-    // In-flight dedup: if there's a pending promise, reuse it.
-    const existing = this.#inflight.get(canonicalRef);
-    if (existing !== undefined) return existing;
-
-    const promise = this.#loadQuill(canonicalRef);
-    this.#inflight.set(canonicalRef, promise);
-
-    try {
-      const quill = await promise;
-      this.#cache.set(canonicalRef, quill);
-      return quill;
-    } finally {
-      // Clear the in-flight entry regardless of success or failure,
-      // so retries don't get a poisoned promise.
-      this.#inflight.delete(canonicalRef);
+    let entry = this.#cache.get(canonicalRef);
+    if (entry === undefined) {
+      entry = this.#loadQuill(canonicalRef).catch((err) => {
+        this.#cache.delete(canonicalRef);
+        throw err;
+      });
+      this.#cache.set(canonicalRef, entry);
     }
+    return entry;
   }
 
   /** Internal: does the actual loading work for getQuill. */
@@ -150,16 +136,19 @@ export class QuiverRegistry {
   /**
    * Warms all quill refs across all composed quivers. Fail-fast.
    *
-   * Calls loadTree + engine.quill(tree) for every known quill version.
-   * Already-cached refs resolve instantly (idempotent).
+   * Calls loadTree + engine.quill(tree) for every known quill version in
+   * parallel. Already-cached refs resolve instantly (idempotent). Rejects on
+   * the first failure (Promise.all fail-fast semantics).
    */
   async warm(): Promise<void> {
+    const promises: Promise<QuillLike>[] = [];
     for (const quiver of this.#quivers) {
       for (const name of quiver.quillNames()) {
         for (const version of quiver.versionsOf(name)) {
-          await this.getQuill(`${name}@${version}`);
+          promises.push(this.getQuill(`${name}@${version}`));
         }
       }
     }
+    await Promise.all(promises);
   }
 }

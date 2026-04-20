@@ -19,6 +19,10 @@ describe("isCanonicalSemver", () => {
   it("rejects empty string", () => expect(isCanonicalSemver("")).toBe(false));
   it("rejects 1.0.0+build (build metadata)", () => expect(isCanonicalSemver("1.0.0+build")).toBe(false));
   it("rejects non-numeric parts", () => expect(isCanonicalSemver("1.x.0")).toBe(false));
+  it("rejects 01.0.0 (leading zero in major)", () => expect(isCanonicalSemver("01.0.0")).toBe(false));
+  it("rejects 0.01.0 (leading zero in minor)", () => expect(isCanonicalSemver("0.01.0")).toBe(false));
+  it("rejects 0.0.01 (leading zero in patch)", () => expect(isCanonicalSemver("0.0.01")).toBe(false));
+  it("rejects 01.02.03 (leading zeros in all parts)", () => expect(isCanonicalSemver("01.02.03")).toBe(false));
 });
 
 describe("matchesSemverSelector", () => {
