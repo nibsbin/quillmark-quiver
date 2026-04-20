@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdir, rm, writeFile, readFile, access, chmod } from "node:fs/promises";
+import { mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -369,24 +369,20 @@ describe("packQuiver — I/O error", () => {
     }
   });
 
-  it("throws transport_error when outDir parent is read-only (cannot create dirs)", async () => {
-    const readOnlyParent = tempDir();
-    tmpDirs.push(readOnlyParent);
+  it("throws transport_error when outDir parent path is a file, not a directory", async () => {
+    // Using a file-as-path-segment (ENOTDIR) works regardless of uid — a
+    // chmod-based read-only fixture is bypassed by root, so it can't be
+    // relied on in containerized test environments.
+    const parentFile = tempDir();
+    tmpDirs.push(parentFile);
 
-    // Create a read-only parent directory — mkdir for outDir/store/ will fail.
-    await mkdir(readOnlyParent, { recursive: true });
-    await chmod(readOnlyParent, 0o444);
+    await writeFile(parentFile, "not a directory");
 
-    const out = join(readOnlyParent, "out");
+    const out = join(parentFile, "out");
 
-    try {
-      await expect(packQuiver(SAMPLE_FIXTURE, out)).rejects.toThrow(
-        expect.objectContaining({ code: "transport_error" }),
-      );
-    } finally {
-      // Restore permissions so afterEach cleanup can delete the temp dir.
-      await chmod(readOnlyParent, 0o755);
-    }
+    await expect(packQuiver(SAMPLE_FIXTURE, out)).rejects.toThrow(
+      expect.objectContaining({ code: "transport_error" }),
+    );
   });
 });
 
