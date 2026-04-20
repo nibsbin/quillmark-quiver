@@ -1,14 +1,15 @@
 {
-  "name": "Node.js Dev Container",
-  "image": "nodejs/devcontainer:nightly",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/home/developer/nodejs/node,type=bind,consistency=cached",
-  "workspaceFolder": "/home/developer/nodejs/node",
-  "remoteUser": "developer",
-  "mounts": [
-    "source=build-cache,target=/home/developer/nodejs/node/out,type=volume"
-  ],
-  "postCreateCommand": "git restore-mtime",
+  "name": "quillmark-registry container",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
   "features": {
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
-  }
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude"
+  },
+  "remoteUser": "node",
+  "postCreateCommand": "sudo chown -R node:node /home/node/.claude"
 }

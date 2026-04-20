@@ -1,0 +1,52 @@
+{
+  "name": "@quillmark/quiver",
+  "version": "0.1.0",
+  "description": "Quiver registry and packaging for Quillmark",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quillmark/quiver"
+  },
+  "keywords": [
+    "quillmark",
+    "quiver",
+    "typst",
+    "markdown"
+  ],
+  "author": "Quillmark Contributors",
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "@quillmark/wasm": ">=0.57.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@quillmark/wasm": "^0.55.0",
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  }
+}
