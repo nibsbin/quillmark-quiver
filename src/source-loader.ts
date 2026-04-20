@@ -10,7 +10,8 @@ import { join, relative, sep } from "node:path";
 import { QuiverError } from "./errors.js";
 import { parseQuiverYaml } from "./quiver-yaml.js";
 import { isCanonicalSemver, compareSemver } from "./semver.js";
-import type { FileTree, QuiverMeta } from "./types.js";
+import type { QuiverMeta } from "./quiver-yaml.js";
+import type { QuiverLoader } from "./quiver.js";
 
 /**
  * Scans a Source Quiver root directory.
@@ -35,11 +36,15 @@ export async function scanSourceQuiver(rootDir: string): Promise<{
   try {
     raw = await readFile(quiverYamlPath);
   } catch (err) {
-    // ENOENT → quiver_invalid (missing required file); other errors → transport_error
+    // ENOENT → transport_error: a missing Quiver.yaml means the path itself
+    // does not point to a quiver — this is a missing-path condition, not a
+    // structural violation of a quiver that exists.
+    // (Contrast: missing Quill.yaml inside a version dir is quiver_invalid —
+    // the version dir exists but lacks its required sentinel file.)
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       throw new QuiverError(
-        "quiver_invalid",
+        "transport_error",
         `Source Quiver at "${rootDir}" is missing required "Quiver.yaml"`,
         { cause: err },
       );
@@ -163,13 +168,13 @@ export async function scanSourceQuiver(rootDir: string): Promise<{
 }
 
 /**
- * Recursively reads all files under a quill version directory into a FileTree.
+ * Recursively reads all files under a quill version directory into a Map.
  *
  * Keys are relative POSIX paths (forward slashes, no leading slash).
  * Throws `transport_error` on I/O failure.
  */
-export async function readQuillTree(quillDir: string): Promise<FileTree> {
-  const tree: FileTree = new Map();
+export async function readQuillTree(quillDir: string): Promise<Map<string, Uint8Array>> {
+  const tree: Map<string, Uint8Array> = new Map();
   await walkDir(quillDir, quillDir, tree);
   return tree;
 }
@@ -177,7 +182,7 @@ export async function readQuillTree(quillDir: string): Promise<FileTree> {
 async function walkDir(
   baseDir: string,
   currentDir: string,
-  tree: FileTree,
+  tree: Map<string, Uint8Array>,
 ): Promise<void> {
   let entries: string[];
   try {
@@ -222,5 +227,19 @@ async function walkDir(
       }
       tree.set(posixRel, bytes);
     }
+  }
+}
+
+/**
+ * Source-backed QuiverLoader: loads file trees from a Source Quiver on disk.
+ * The outer Quiver.loadTree already validates name/version against the catalog,
+ * so this loader trusts the gate and goes straight to reading files.
+ */
+export class SourceLoader implements QuiverLoader {
+  constructor(private readonly rootDir: string) {}
+
+  async loadTree(name: string, version: string): Promise<Map<string, Uint8Array>> {
+    const quillDir = join(this.rootDir, "quills", name, version);
+    return readQuillTree(quillDir);
   }
 }

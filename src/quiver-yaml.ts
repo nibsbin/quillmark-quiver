@@ -8,7 +8,11 @@
 
 import { parse as parseYaml } from "yaml";
 import { QuiverError } from "./errors.js";
-import type { QuiverMeta } from "./types.js";
+
+export interface QuiverMeta {
+  name: string;
+  description?: string;
+}
 
 const NAME_RE = /^[A-Za-z0-9_-]+$/;
 

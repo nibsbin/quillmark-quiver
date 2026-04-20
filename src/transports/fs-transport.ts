@@ -14,10 +14,20 @@ export class FsTransport implements PackedTransport {
   constructor(private rootDir: string) {}
 
   async fetchBytes(relativePath: string): Promise<Uint8Array> {
-    const { join } = await import("node:path");
+    const { join, resolve } = await import("node:path");
     const { readFile } = await import("node:fs/promises");
 
-    const fullPath = join(this.rootDir, relativePath);
+    const rootResolved = resolve(this.rootDir);
+    const fullPath = resolve(join(this.rootDir, relativePath));
+
+    // Defense-in-depth: ensure resolved path stays within rootDir.
+    if (!fullPath.startsWith(rootResolved + "/") && fullPath !== rootResolved) {
+      throw new QuiverError(
+        "transport_error",
+        `Path traversal detected: "${relativePath}" escapes quiver root`,
+      );
+    }
+
     try {
       const buf = await readFile(fullPath);
       // Ensure we return a plain Uint8Array, not a Node.js Buffer subclass.

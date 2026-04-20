@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { Quiver } from "../quiver.js";
 import { QuiverRegistry } from "../registry.js";
 import { QuiverError } from "../errors.js";
-import type { QuillmarkLike, QuillLike } from "../engine-types.js";
+import { makeMockEngine } from "./helpers/mock-engine.js";
 
 // ─── Fixture ──────────────────────────────────────────────────────────────────
 
@@ -22,17 +22,6 @@ const SAMPLE_FIXTURE = new URL("./fixtures/sample-quiver", import.meta.url)
 
 function tempDir(): string {
   return join(tmpdir(), `quiver-integration-test-${randomUUID()}`);
-}
-
-function makeMockEngine() {
-  const calls: Array<Map<string, Uint8Array>> = [];
-  const engine: QuillmarkLike = {
-    quill(tree: Map<string, Uint8Array>): QuillLike {
-      calls.push(tree);
-      return { render: () => ({ ok: true }) };
-    },
-  };
-  return { calls, engine };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

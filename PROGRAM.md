@@ -314,6 +314,12 @@ class Quiver {
   static pack(sourceDir: string, outDir: string, opts?: PackOptions): Promise<void>;
 
   readonly name: string; // from Quiver.yaml
+
+  // Read-only introspection and lazy tree access used by QuiverRegistry
+  // internally; also available for external debugging and tooling.
+  quillNames(): string[];                                              // sorted lex
+  versionsOf(name: string): string[];                                  // sorted desc
+  loadTree(name: string, version: string): Promise<Map<string, Uint8Array>>;
 }
 ```
 

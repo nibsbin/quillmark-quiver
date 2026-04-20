@@ -127,14 +127,17 @@ describe("scanSourceQuiver", () => {
 
   // --- Missing Quiver.yaml ---
 
-  it("throws quiver_invalid when Quiver.yaml is missing", async () => {
+  it("throws transport_error when Quiver.yaml is missing", async () => {
+    // ENOENT on Quiver.yaml is transport_error (missing-path condition) — the
+    // path doesn't point to a quiver at all, not a structural violation within
+    // one. Contrast: missing Quill.yaml inside a version dir is quiver_invalid.
     const root = makeTempDir();
     tempDirs.push(root);
     await mkdir(root, { recursive: true });
     // No Quiver.yaml written
 
     await expect(scanSourceQuiver(root)).rejects.toThrow(
-      expect.objectContaining({ code: "quiver_invalid" }),
+      expect.objectContaining({ code: "transport_error" }),
     );
   });
 

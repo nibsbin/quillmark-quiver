@@ -81,4 +81,45 @@ describe("FsTransport.fetchBytes", () => {
     expect(thrown).toBeInstanceOf(QuiverError);
     expect((thrown as QuiverError).code).toBe("transport_error");
   });
+
+  it("path traversal attempt (../../etc/passwd) throws transport_error", async () => {
+    const root = tempDir();
+    tmpDirs.push(root);
+    await mkdir(root, { recursive: true });
+
+    const transport = new FsTransport(root);
+    await expect(
+      transport.fetchBytes("../../etc/passwd"),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "transport_error" }),
+    );
+  });
+
+  it("path traversal via absolute path throws transport_error", async () => {
+    const root = tempDir();
+    tmpDirs.push(root);
+    await mkdir(root, { recursive: true });
+
+    const transport = new FsTransport(root);
+    // resolve(join(root, "/etc/passwd")) resolves to "/etc/passwd" on POSIX
+    await expect(
+      transport.fetchBytes("/etc/passwd"),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "transport_error" }),
+    );
+  });
+
+  it("normal subdirectory traversal (a/b/../c) stays inside root", async () => {
+    const root = tempDir();
+    tmpDirs.push(root);
+    await mkdir(join(root, "sub"), { recursive: true });
+
+    const expected = new Uint8Array([42]);
+    await writeFile(join(root, "target.bin"), expected);
+
+    const transport = new FsTransport(root);
+    // sub/../target.bin resolves to root/target.bin — still inside root
+    const bytes = await transport.fetchBytes("sub/../target.bin");
+    expect(bytes).toEqual(expected);
+  });
 });

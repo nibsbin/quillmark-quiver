@@ -12,10 +12,23 @@
 import { QuiverError } from "./errors.js";
 import { unpackFiles } from "./bundle.js";
 import { isCanonicalSemver, compareSemver } from "./semver.js";
-import type { FileTree, PackedManifest, PackedQuillEntry } from "./types.js";
-import type { QuiverLoader } from "./quiver-internal.js";
-import { PACKED_FACTORY } from "./quiver-internal.js";
+import type { QuiverLoader } from "./quiver.js";
 import { Quiver } from "./quiver.js";
+
+// ─── Internal types ───────────────────────────────────────────────────────────
+
+interface PackedQuillEntry {
+  name: string;
+  version: string;
+  bundle: string;
+  fonts: Record<string, string>;
+}
+
+interface PackedManifest {
+  version: 1;
+  name: string;
+  quills: PackedQuillEntry[];
+}
 
 // ─── Public interface (internal to the package) ───────────────────────────────
 
@@ -27,6 +40,39 @@ export interface PackedTransport {
   fetchBytes(relativePath: string): Promise<Uint8Array>;
 }
 
+// ─── Path validation ──────────────────────────────────────────────────────────
+
+const MANIFEST_FILENAME_RE = /^manifest\.[0-9a-f]+\.json$/;
+const BUNDLE_FILENAME_RE = /^[A-Za-z0-9_.-]+@[0-9]+\.[0-9]+\.[0-9]+\.[0-9a-f]+\.zip$/;
+const FONT_HASH_RE = /^[0-9a-f]{32}$/;
+
+function validateManifestFileName(name: string): void {
+  if (!MANIFEST_FILENAME_RE.test(name)) {
+    throw new QuiverError(
+      "quiver_invalid",
+      `Pointer manifest filename is invalid: "${name}"`,
+    );
+  }
+}
+
+function validateBundleFileName(bundle: string, context: string): void {
+  if (!BUNDLE_FILENAME_RE.test(bundle)) {
+    throw new QuiverError(
+      "quiver_invalid",
+      `${context}: bundle filename is invalid: "${bundle}"`,
+    );
+  }
+}
+
+function validateFontHash(hash: string, context: string): void {
+  if (!FONT_HASH_RE.test(hash)) {
+    throw new QuiverError(
+      "quiver_invalid",
+      `${context}: font hash is invalid: "${hash}"`,
+    );
+  }
+}
+
 // ─── PackedLoader implementation ─────────────────────────────────────────────
 
 class PackedLoader implements QuiverLoader {
@@ -35,13 +81,17 @@ class PackedLoader implements QuiverLoader {
 
   constructor(
     private readonly transport: PackedTransport,
-    private readonly manifest: PackedManifest,
+    /** Index map from "name@version" to its manifest entry. */
+    private readonly index: Map<string, PackedQuillEntry>,
   ) {}
 
-  async loadTree(name: string, version: string): Promise<FileTree> {
-    const entry = this.manifest.quills.find(
-      (q) => q.name === name && q.version === version,
-    );
+  async loadTree(name: string, version: string): Promise<Map<string, Uint8Array>> {
+    const entry = this.index.get(`${name}@${version}`);
+
+    // If entry is missing, the outer Quiver.loadTree gate already validated
+    // that this name/version is in the catalog; trust that gate and fall
+    // through. The transport will surface a transport_error naturally.
+    // (Defensive: this should not be reachable in normal operation.)
 
     if (!entry) {
       throw new QuiverError(
@@ -63,7 +113,7 @@ class PackedLoader implements QuiverLoader {
       }),
     );
 
-    // 3. Convert to FileTree (Map).
+    // 3. Convert to Map.
     return new Map(Object.entries(files));
   }
 
@@ -214,6 +264,11 @@ function parseManifest(raw: string): PackedManifest {
       );
     }
 
+    validateBundleFileName(
+      e["bundle"] as string,
+      `manifest.quills[${i}].bundle`,
+    );
+
     if (
       typeof e["fonts"] !== "object" ||
       e["fonts"] === null ||
@@ -233,6 +288,7 @@ function parseManifest(raw: string): PackedManifest {
           `manifest.quills[${i}].fonts["${k}"] must be a string`,
         );
       }
+      validateFontHash(v, `manifest.quills[${i}].fonts["${k}"]`);
     }
 
     quills.push({
@@ -280,6 +336,8 @@ export async function loadPackedQuiver(
     new TextDecoder().decode(pointerBytes),
   );
 
+  validateManifestFileName(manifestFileName);
+
   // 2. Fetch and parse manifest.
   let manifestBytes: Uint8Array;
   try {
@@ -296,8 +354,20 @@ export async function loadPackedQuiver(
   const manifest = parseManifest(new TextDecoder().decode(manifestBytes));
 
   // 3. Build catalog: name → versions sorted descending.
+  //    Also build index map: "name@version" → entry (with duplicate detection).
   const catalogRaw = new Map<string, string[]>();
+  const index = new Map<string, PackedQuillEntry>();
+
   for (const entry of manifest.quills) {
+    const key = `${entry.name}@${entry.version}`;
+    if (index.has(key)) {
+      throw new QuiverError(
+        "quiver_invalid",
+        `Duplicate quill entry in manifest: "${key}"`,
+      );
+    }
+    index.set(key, entry);
+
     const versions = catalogRaw.get(entry.name) ?? [];
     versions.push(entry.version);
     catalogRaw.set(entry.name, versions);
@@ -308,8 +378,8 @@ export async function loadPackedQuiver(
   }
 
   // 4. Build loader.
-  const loader = new PackedLoader(transport, manifest);
+  const loader = new PackedLoader(transport, index);
 
   // 5. Return Quiver via internal factory.
-  return Quiver[PACKED_FACTORY](manifest.name, catalogRaw, loader);
+  return Quiver._fromLoader(manifest.name, catalogRaw, loader);
 }

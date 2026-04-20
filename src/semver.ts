@@ -1,6 +1,6 @@
 /** Returns true for exactly `x.y.z` with non-negative integer parts. */
 export function isCanonicalSemver(version: string): boolean {
-  return /^\d+\.\d+\.\d+$/.test(version);
+  return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version);
 }
 
 /** Returns true if `version` (canonical) matches `selector` (partial). */

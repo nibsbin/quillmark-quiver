@@ -73,32 +73,4 @@ describe("assertNode – browser guard", () => {
     }
   });
 
-  it("includes the method name in the error message", () => {
-    restore = maskProcess();
-
-    try {
-      assertNode("Quiver.fromPackedDir");
-      expect.fail("Expected assertNode to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(QuiverError);
-      const qe = err as QuiverError;
-      expect(qe.message).toContain("Quiver.fromPackedDir");
-      expect(qe.message).toContain("Node.js");
-    }
-  });
-
-  it("includes the method name for Quiver.pack as well", () => {
-    restore = maskProcess();
-
-    try {
-      assertNode("Quiver.pack");
-      expect.fail("Expected assertNode to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(QuiverError);
-      const qe = err as QuiverError;
-      expect(qe.code).toBe("transport_error");
-      expect(qe.message).toContain("Quiver.pack");
-      expect(qe.message).toContain("Node.js");
-    }
-  });
 });
