@@ -1,0 +1,8 @@
+#[path = "../tests/common.rs"]
+mod common;
+use common::demo;
+
+fn main() {
+    // Use the fixtures demo helper which centralizes file IO and printing.
+    demo("usaf_memo", "usaf_memo_output.pdf", false).expect("Demo failed");
+}
