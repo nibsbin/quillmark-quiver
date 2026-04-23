@@ -11,7 +11,7 @@ npm install @quillmark/quiver @quillmark/wasm
 ## Quick start
 
 ```ts
-import { Quillmark, ParsedDocument } from "@quillmark/wasm";
+import { Quillmark, Document } from "@quillmark/wasm";
 import { Quiver, QuiverRegistry } from "@quillmark/quiver/node";
 
 // 1. Load a source quiver from disk (Node.js only)
@@ -22,10 +22,10 @@ const engine = new Quillmark();
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
 // 3. Resolve a ref, obtain a render-ready quill, and render
-const parsed = ParsedDocument.fromMarkdown(markdownString);
-const canonicalRef = await registry.resolve(parsed.quillRef);
+const doc = Document.fromMarkdown(markdownString);
+const canonicalRef = await registry.resolve(doc.quillRef);
 const quill = await registry.getQuill(canonicalRef);
-const result = quill.render(parsed, { format: "pdf" });
+const result = quill.render(doc, { format: "pdf" });
 ```
 
 ## HTTP (browser / CDN)

@@ -1,9 +1,9 @@
 /**
- * Minimal structural types matching @quillmark/wasm >=0.57.0 (verified against 0.58.0).
+ * Minimal structural types matching @quillmark/wasm >=0.58.2-rc.6.
  *
  * Shape:
  *   class Quillmark { quill(tree: Map<string, Uint8Array>): Quill }
- *   class Quill     { render(parsed, opts): RenderResult; open(parsed): RenderSession }
+ *   class Quill     { render(doc, opts): RenderResult; open(doc): RenderSession }
  *
  * These types are INTERNAL — never re-exported from index.ts. They exist so
  * registry.ts never imports from @quillmark/wasm directly and so test doubles
@@ -18,6 +18,6 @@ export interface QuillmarkLike {
 }
 
 export interface QuillLike {
-  render(parsed: unknown, opts?: unknown): unknown;
-  open?: (parsed: unknown) => unknown;
+  render(doc: unknown, opts?: unknown): unknown;
+  open?: (doc: unknown) => unknown;
 }

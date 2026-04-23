@@ -126,11 +126,11 @@ Quillmark integration for `@quillmark/quiver` is:
 
 1. Initialize engine once (`new Quillmark()` from `@quillmark/wasm`)
 2. When quill bytes are ready, build a render-ready quill with `engine.quill(tree)` (`Map<string, Uint8Array>`)
-3. Render through the returned quill: `quill.render(parsed, opts?)` (`ParsedDocument`)
+3. Render through the returned quill: `quill.render(doc, opts?)` (`Document`)
 
 Important implications:
 
-- No engine quill registry in the JS binding; no `registerQuill`, `hasQuill`, or engine-level `render(parsed)` in Quiver’s flow
+- No engine quill registry in the JS binding; no `registerQuill`, `hasQuill`, or engine-level `render(doc)` in Quiver’s flow
 - Quiver owns mapping from canonical ref → in-memory tree → `Quill` instance
 - Cache optimization is in-process reuse of `Quill` instances, not registration checks
 - Path-based loading (`quill_from_path`) exists in **other** bindings only; in Node, Quiver reads files and assembles `tree` for `engine.quill(tree)` (see upstream `references/quillmark/docs/integration/javascript/api.md`)
@@ -139,13 +139,13 @@ For advanced dynamic-asset behavior, defer to Quillmark’s JS/WASM docs; the de
 
 ### 8) Markdown and Ref Parsing Boundary
 
-- Markdown parsing does not require a quill registry: `ParsedDocument.fromMarkdown(markdown)`
+- Markdown parsing does not require a quill registry: `Document.fromMarkdown(markdown)`
 - Quiver owns ref parsing and selector resolution for its own API (`resolve`, `warm`, validation)
-- QUILL field is informational at render time; Quiver routes to the intended quill explicitly without mutating the parsed document in V1
+- QUILL field is informational at render time; Quiver routes to the intended quill explicitly without mutating the document in V1
 
 Upstream behavior note:
 
-- If rendering a parsed document whose `quill_ref` differs from selected quill name, render proceeds with warning `quill::ref_mismatch`
+- If rendering a document whose `quillRef` differs from the selected quill name, render proceeds with warning `quill::ref_mismatch`
 - Quiver should surface that warning, not suppress it. In V1, this is an intentional loud footgun detector for ref/selection drift.
 
 ### 9) Distribution Strategy
@@ -343,16 +343,16 @@ class QuiverError extends Error {
 }
 ```
 
-**No render wrapper.** Callers invoke `quill.render(parsed, opts)` (and `quill.open(parsed)` when needed) after `resolve()` + `getQuill()`. Quiver never mirrors Quillmark render APIs.
+**No render wrapper.** Callers invoke `quill.render(doc, opts)` (and `quill.open(doc)` when needed) after `resolve()` + `getQuill()`. Quiver never mirrors Quillmark render APIs.
 
 **Internal (not exported):** `QuiverTransport`, `QuiverManifest` (runtime shape), `parseQuillRef`, in-flight coalescing state.
 
 Hot-path flow:
 ```ts
-const parsed = ParsedDocument.fromMarkdown(md);
-const canonicalRef = await registry.resolve(parsed.quillRef);
+const doc = Document.fromMarkdown(md);
+const canonicalRef = await registry.resolve(doc.quillRef);
 const quill = await registry.getQuill(canonicalRef);
-const result = quill.render(parsed, { format: "pdf" });
+const result = quill.render(doc, { format: "pdf" });
 ```
 
 ## Package Structure
@@ -364,7 +364,7 @@ const result = quill.render(parsed, { format: "pdf" });
 - `@quillmark/quiver/node`: adds `Quiver.fromSourceDir`, `Quiver.fromPackedDir`, `Quiver.pack` behaviors. Single `Quiver` class — Node-only factories fail fast outside Node.
 
 **Dependencies:**
-- Peer: `@quillmark/wasm@>=0.57.0` with `Quillmark`, `ParsedDocument.fromMarkdown`, `engine.quill(tree)`, and `quill.render(parsed, opts)` APIs.
+- Peer: `@quillmark/wasm@>=0.58.2-rc.6` with `Quillmark`, `Document.fromMarkdown`, `engine.quill(tree)`, and `quill.render(doc, opts)` APIs.
 - Runtime: `fflate ^0.8.2` for zip read/write (Node + browser)
 - Dev-only: `node:crypto` (MD5 hashing in `pack()` — never reached at runtime)
 

@@ -27,13 +27,13 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "@quillmark/wasm": ">=0.57.0"
+    "@quillmark/wasm": "^0.58.2-rc.6"
   },
   "dependencies": {
     "fflate": "^0.8.2"
   },
   "devDependencies": {
-    "@quillmark/wasm": "^0.57.0",
+    "@quillmark/wasm": "0.58.2-rc.6",
     "@types/node": "^25.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"

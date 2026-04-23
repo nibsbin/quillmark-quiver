@@ -11,7 +11,7 @@
 ### `src/registry.ts` — `QuiverRegistry`
 
 ```ts
-import type { Quillmark, Quill } from "@quillmark/wasm"; // peer dep types
+import type { Quillmark, Quill } from "@quillmark/wasm"; // peer dep types (>=0.58.2-rc.6)
 
 export class QuiverRegistry {
   constructor(args: { engine: Quillmark; quivers: Quiver[] });
@@ -205,4 +205,4 @@ const quill = await registry.getQuill(canonicalRef);
 - `resolve()` is sync-capable in the source-quiver case (catalog is pre-scanned), but kept `async` because packed-quiver resolution may need I/O in Phase 5.
 - `getQuill()` is always async because `loadTree()` does I/O.
 - Cache eviction is explicitly out of scope for V1 (§Caching scope).
-- `ref_mismatch` warning from `quill.render()` is surfaced by upstream — Quiver does not suppress it (§8). No Quiver-level logic needed.
+- `ref_mismatch` warning from `quill.render(doc)` is surfaced by upstream — Quiver does not suppress it (§8). No Quiver-level logic needed.
