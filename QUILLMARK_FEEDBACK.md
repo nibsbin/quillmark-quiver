@@ -54,10 +54,26 @@ describes is observable in the shipped `wasm.d.ts`:
    named `CardInput`) would make the mutator API self-documenting and let TS
    catch missing-`tag` errors at edit time.
 
-3. **`readonly cards: any` / `readonly frontmatter: any` / `readonly
-   warnings: any`.** These getters could be typed as `Card[]`,
-   `Record<string, unknown>`, and `Diagnostic[]` respectively. Today
-   consumers must re-assert through a cast.
+3. **`readonly cards: any` and `readonly warnings: any` on `Document`.**
+   These getters have fully-known shapes — `Card` and `Diagnostic` are
+   already exported from the same `.d.ts`, and the JSDoc literally says
+   "JS array of Diagnostic objects" / "JS objects with `tag`, `fields`,
+   and `body`". The `any` is almost certainly a wasm-bindgen codegen
+   artifact (Rust returns `JsValue` via `serde_wasm_bindgen`, which
+   wasm-bindgen can't see through). A `#[wasm_bindgen(typescript_type =
+   "Card[]")]` / `"Diagnostic[]"` attribute would fix both without any
+   runtime change. Same story for `Quill.projectForm(doc): any` — the
+   JSDoc describes the exact shape; a named interface would help.
+
+   Note: `readonly frontmatter: any` is different and probably correct
+   as-is. Frontmatter shape is schema-by-convention per quill, so `any`
+   lets consumers cast to their own app-level type without ceremony
+   (`doc.frontmatter as MyMemoSchema`) or destructure directly. Tightening
+   it to `Record<string, unknown>` would force a cast on every field
+   access without catching real bugs. A generic form —
+   `class Document<F = any> { readonly frontmatter: F }` — would let
+   schema-aware consumers parameterize while everyone else pays nothing,
+   but that's a larger API change.
 
 4. **Dist-tag.** `0.58.2-rc.6` is published under the `next` tag while
    `0.58.0` remains `latest`. That is correct, but worth calling out in the
