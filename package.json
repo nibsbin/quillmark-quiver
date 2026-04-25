@@ -26,6 +26,10 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "files": [
@@ -34,7 +38,13 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@quillmark/wasm": ">=0.59.0-rc.2"
+    "@quillmark/wasm": ">=0.59.0-rc.2",
+    "vitest": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   },
   "dependencies": {
     "fflate": "^0.8.2",
