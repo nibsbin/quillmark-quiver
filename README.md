@@ -1,6 +1,6 @@
 # @quillmark/quiver
 
-Quiver registry and packaging for Quillmark — load, compose, and pack collections of quills for rendering with `@quillmark/wasm`.
+Quiver registry and build tooling for Quillmark — load, compose, and build collections of quills for rendering with `@quillmark/wasm`.
 
 ## Install
 
@@ -10,19 +10,25 @@ npm install @quillmark/quiver @quillmark/wasm
 
 ## Distribution model
 
-A Quiver is published as its **Source** shape (the human-authored layout in the repo).
-Consumers decide how to load it:
+A Quiver has one authored shape: the **source layout** (`Quiver.yaml` at the
+package root, quills under `quills/<name>/<x.y.z>/`). Authors publish it as
+an npm package. Consumers decide how to consume it:
 
-- **Node consumers** load the Source Quiver directly with `Quiver.fromSourceDir`.
-- **Browser consumers** run `Quiver.pack(...)` as a build step and serve the
-  packed output over HTTP with `Quiver.fromHttp`.
+- **Node consumers** load the source layout directly with `Quiver.fromPackage`.
+- **Browser consumers** run `Quiver.build(...)` as a build step and serve the
+  output as static assets, loading it with `Quiver.fromUrl`.
 
-This keeps the author flow to a single command (`npm publish` or `git tag`) and
-puts the deployment-topology decision where it belongs: with the consumer.
+`Quiver.fromDir` and `Quiver.fromUrl` auto-detect whether the target is a
+source layout or build output, so consumer code does not branch on which
+shape is at the other end.
+
+This keeps the author flow to a single command (`npm publish` or `git tag`)
+and puts the deployment-topology decision where it belongs: with the
+consumer.
 
 ## Authoring a quiver
 
-Lay out a Source Quiver per the spec, then publish to npm (or push a git tag):
+Lay out the source per the spec, then publish to npm (or push a git tag):
 
 ```
 my-quiver/
@@ -34,8 +40,9 @@ my-quiver/
   package.json
 ```
 
-Recommended CI: load with `Quiver.fromSourceDir` and run `Quiver.pack` in a
-smoke test so validation errors surface on publish, not on the consumer's build.
+Recommended CI: use the bundled `@quillmark/quiver/testing` harness — it
+loads with `Quiver.fromDir` and exercises every quill so validation errors
+surface on publish, not on the consumer's build.
 
 ## Consuming a quiver (Node)
 
@@ -43,9 +50,7 @@ smoke test so validation errors surface on publish, not on the consumer's build.
 import { Quillmark, Document } from "@quillmark/wasm";
 import { Quiver, QuiverRegistry } from "@quillmark/quiver/node";
 
-// Resolve the published source quiver from node_modules.
-const quiverPath = require.resolve("@org/my-quiver/Quiver.yaml");
-const quiver = await Quiver.fromSourceDir(new URL(".", `file://${quiverPath}`).pathname);
+const quiver = await Quiver.fromPackage("@org/my-quiver");
 
 const engine = new Quillmark();
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
@@ -58,35 +63,36 @@ const result = quill.render(doc, { format: "pdf" });
 
 ## Consuming a quiver (browser)
 
-Browsers cannot read the Source Quiver layout directly, so pack at build time
-and serve the output as static files:
+Browsers cannot read the source layout directly, so build at deploy time and
+serve the output as static files:
 
 ```ts
 // build script (Node)
 import { Quiver } from "@quillmark/quiver/node";
 
-await Quiver.pack("./node_modules/@org/my-quiver", "./public/quivers/my-quiver");
+const src = await Quiver.fromPackage("@org/my-quiver"); // resolves source dir
+await Quiver.build(src.dir, "./public/quivers/my-quiver");
 ```
 
 ```ts
 // browser runtime
 import { Quiver, QuiverRegistry } from "@quillmark/quiver";
 
-const quiver = await Quiver.fromHttp("/quivers/my-quiver");
+const quiver = await Quiver.fromUrl("/quivers/my-quiver/");
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 ```
 
-## Advanced: pre-packed distribution
+## Advanced: pre-built distribution
 
-If you need to ship a runtime artifact directly (e.g. consumers cannot run a
-Node build step), `Quiver.pack` produces a content-addressed Packed Quiver
-that can be loaded with `Quiver.fromPackedDir` or `Quiver.fromHttp`:
+If you need to ship the runtime artifact directly (e.g. consumers cannot run
+a Node build step), `Quiver.build` produces a content-addressed output that
+can be loaded with `Quiver.fromDir` or `Quiver.fromUrl`:
 
 ```ts
 import { Quiver } from "@quillmark/quiver/node";
 
-await Quiver.pack("./my-quiver", "./dist/my-quiver");
-const quiver = await Quiver.fromPackedDir("./dist/my-quiver");
+await Quiver.build("./my-quiver", "./dist/my-quiver");
+const quiver = await Quiver.fromDir("./dist/my-quiver"); // auto-detects build output
 ```
 
 ## Warm (prefetch all quills)
@@ -129,4 +135,4 @@ Error codes: `invalid_ref`, `quill_not_found`, `quiver_invalid`, `transport_erro
 
 ## Full specification
 
-See [PROGRAM.md](./PROGRAM.md) for the complete API surface, packed format specification, and design decisions.
+See [PROGRAM.md](./PROGRAM.md) for the complete API surface, runtime artifact format specification, and design decisions.
