@@ -9,7 +9,7 @@
  *
  *   import { Quillmark } from "@quillmark/wasm";
  *   import { runQuiverTests } from "@quillmark/quiver/testing";
- *   const engine = await Quillmark.load();
+ *   const engine = new Quillmark();
  *   runQuiverTests(import.meta.url, engine);
  *
  * Run with `node --test`.
