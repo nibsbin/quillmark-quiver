@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Release
 
 on:
   workflow_dispatch:
@@ -15,6 +15,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       # Required for npm Trusted Publishing (OIDC token exchange).
       id-token: write
