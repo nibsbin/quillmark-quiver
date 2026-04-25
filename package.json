@@ -42,7 +42,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@quillmark/wasm": ">=0.59.0-rc.2",
+    "@quillmark/wasm": ">=0.59.0",
     "vitest": ">=4.0.0"
   },
   "peerDependenciesMeta": {
@@ -55,7 +55,7 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@quillmark/wasm": "0.59.0-rc.2",
+    "@quillmark/wasm": "0.59.0",
     "@types/node": "^25.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
