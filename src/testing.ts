@@ -3,15 +3,14 @@
  *
  * Usage (place this file next to your Quiver.yaml):
  *
- *   import { runQuiverTests } from "@quillmark/quiver/testing";
- *   runQuiverTests(import.meta.url);
- *
- * To test with the real @quillmark/wasm engine instead of the mock:
- *
  *   import { Quillmark } from "@quillmark/wasm";
  *   import { runQuiverTests } from "@quillmark/quiver/testing";
- *   const engine = await Quillmark.load();
- *   runQuiverTests(import.meta.url, { engine });
+ *   runQuiverTests(import.meta.url, () => Quillmark.load());
+ *
+ * The engine factory is called in beforeAll, so no top-level await is needed.
+ * If you already have an initialized engine instance you can pass it directly:
+ *
+ *   runQuiverTests(import.meta.url, engine);
  *
  * Requires vitest in your devDependencies.
  */
@@ -28,8 +27,8 @@ export type { QuillmarkLike, QuillLike };
 
 /**
  * Returns a lightweight mock engine and a record of every tree passed to it.
- * Useful for writing custom assertions on top of the standard suite, or for
- * building your own test helpers.
+ * Useful for writing custom test helpers; not intended as a substitute for the
+ * real engine in runQuiverTests (the mock performs no template compilation).
  */
 export function makeMockEngine(): {
   calls: Array<Map<string, Uint8Array>>;
@@ -87,26 +86,30 @@ function discoverQuills(
   return results;
 }
 
+type EngineArg =
+  | QuillmarkLike
+  | (() => QuillmarkLike | Promise<QuillmarkLike>);
+
 /**
- * Registers a Vitest describe block that smoke-tests every quill version in
- * the quiver at `sourceDirOrMetaUrl`.
+ * Registers a Vitest describe block that validates every quill version in the
+ * quiver at `sourceDirOrMetaUrl` against the provided Quillmark engine.
  *
- * Pass `import.meta.url` when your test file lives at the quiver root
- * (next to Quiver.yaml). Pass an absolute directory path for any other layout.
+ * Pass `import.meta.url` when your test file lives at the quiver root (next to
+ * Quiver.yaml). Pass an absolute directory path for any other layout.
  *
  * Each (quill, version) pair gets its own `it()` so failures are reported
- * individually. The quiver is loaded once in `beforeAll`.
+ * individually. The quiver and engine are initialised once in `beforeAll`.
  *
- * With the default mock engine, each test verifies that the file tree loads
- * and is well-formed (valid Quiver.yaml, valid Quill.yaml, no missing files).
- * Pass the real `@quillmark/wasm` engine to also exercise template compilation.
+ * Validation covers the full loading pipeline: Quiver.yaml, Quill.yaml, all
+ * template files, and engine compilation via engine.quill(tree). A quill that
+ * contains a template error will cause its test to fail with the engine's own
+ * error message.
  */
 export function runQuiverTests(
   sourceDirOrMetaUrl: string,
-  options?: { engine?: QuillmarkLike },
+  engine: EngineArg,
 ): void {
   const sourceDir = resolveSourceDir(sourceDirOrMetaUrl);
-  const engine = options?.engine ?? makeMockEngine().engine;
 
   // Enumerate quills synchronously so Vitest can collect test cases before
   // any async work begins. Errors here (missing quills/ dir, unreadable dirs)
@@ -118,8 +121,13 @@ export function runQuiverTests(
     let registry!: QuiverRegistry;
 
     beforeAll(async () => {
+      const resolvedEngine =
+        typeof engine === "function" ? await engine() : engine;
       const quiver = await Quiver.fromSourceDir(sourceDir);
-      registry = new QuiverRegistry({ engine, quivers: [quiver] });
+      registry = new QuiverRegistry({
+        engine: resolvedEngine,
+        quivers: [quiver],
+      });
     });
 
     it("has at least one quill", () => {
@@ -127,7 +135,7 @@ export function runQuiverTests(
     });
 
     for (const { name, version } of quills) {
-      it(`${name}@${version} loads without error`, async () => {
+      it(`${name}@${version} compiles without error`, async () => {
         const quill = await registry.getQuill(`${name}@${version}`);
         expect(typeof quill.render).toBe("function");
       });
