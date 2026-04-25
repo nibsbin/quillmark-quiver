@@ -13,7 +13,7 @@ function makeTempDir(): string {
   return join(tmpdir(), `quiver-test-${randomUUID()}`);
 }
 
-describe("Quiver.fromSourceDir", () => {
+describe("Quiver.fromDir", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
@@ -25,12 +25,12 @@ describe("Quiver.fromSourceDir", () => {
   // --- Happy path ---
 
   it("loads sample fixture: name is 'sample'", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     expect(q.name).toBe("sample");
   });
 
   it("loads sample fixture: quillNames() returns sorted names", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const names = q.quillNames();
     expect(names).toEqual([...names].sort());
     expect(names).toContain("memo");
@@ -38,29 +38,29 @@ describe("Quiver.fromSourceDir", () => {
   });
 
   it("loads sample fixture: versionsOf('memo') is descending", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     expect(q.versionsOf("memo")).toEqual(["1.1.0", "1.0.0"]);
   });
 
   it("loads sample fixture: versionsOf('resume') is ['2.0.0']", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     expect(q.versionsOf("resume")).toEqual(["2.0.0"]);
   });
 
   it("versionsOf returns empty array for unknown quill name", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     expect(q.versionsOf("nonexistent")).toEqual([]);
   });
 
   it("name property is readonly string", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     expect(typeof q.name).toBe("string");
   });
 
   // --- loadTree ---
 
   it("loadTree('memo', '1.0.0') returns a Map with Quill.yaml and template.typ", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const tree = await q.loadTree("memo", "1.0.0");
     expect(tree).toBeInstanceOf(Map);
     expect(tree.has("Quill.yaml")).toBe(true);
@@ -68,7 +68,7 @@ describe("Quiver.fromSourceDir", () => {
   });
 
   it("loadTree values are Uint8Array", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const tree = await q.loadTree("memo", "1.0.0");
     for (const value of tree.values()) {
       expect(value).toBeInstanceOf(Uint8Array);
@@ -76,7 +76,7 @@ describe("Quiver.fromSourceDir", () => {
   });
 
   it("loadTree returns different tree objects on repeated calls (no caching)", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const tree1 = await q.loadTree("memo", "1.0.0");
     const tree2 = await q.loadTree("memo", "1.0.0");
     // Different Map instances — lazy reads each time
@@ -84,7 +84,7 @@ describe("Quiver.fromSourceDir", () => {
   });
 
   it("loadTree reads correct version: 1.1.0 content differs from 1.0.0", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const tree100 = await q.loadTree("memo", "1.0.0");
     const tree110 = await q.loadTree("memo", "1.1.0");
     const text100 = new TextDecoder().decode(tree100.get("template.typ")!);
@@ -96,14 +96,14 @@ describe("Quiver.fromSourceDir", () => {
   // --- loadTree not-found / errors ---
 
   it("loadTree throws transport_error for unknown quill name", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     await expect(q.loadTree("unknown", "1.0.0")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 
   it("loadTree throws transport_error for unknown version of a known quill", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     await expect(q.loadTree("memo", "99.0.0")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
@@ -119,7 +119,7 @@ describe("Quiver.fromSourceDir", () => {
     tempDirs.push(root);
     await mkdir(root, { recursive: true });
 
-    await expect(Quiver.fromSourceDir(root)).rejects.toThrow(
+    await expect(Quiver.fromDir(root)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
@@ -136,7 +136,7 @@ describe("Quiver.fromSourceDir", () => {
       "name: myquill\n",
     );
 
-    await expect(Quiver.fromSourceDir(root)).rejects.toThrow(
+    await expect(Quiver.fromDir(root)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -144,7 +144,7 @@ describe("Quiver.fromSourceDir", () => {
   // --- Immutability ---
 
   it("quillNames() returns a new array each call (defensive copy)", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const a = q.quillNames();
     const b = q.quillNames();
     expect(a).not.toBe(b);
@@ -152,7 +152,7 @@ describe("Quiver.fromSourceDir", () => {
   });
 
   it("versionsOf() returns a new array each call (defensive copy)", async () => {
-    const q = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const q = await Quiver.fromDir(SAMPLE_FIXTURE);
     const a = q.versionsOf("memo");
     const b = q.versionsOf("memo");
     expect(a).not.toBe(b);

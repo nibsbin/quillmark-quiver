@@ -2,7 +2,7 @@
  * Browser-guard tests.
  *
  * Verifies that assertNode() — and therefore the three Node-only factories
- * (fromSourceDir, fromPackedDir, pack) — throw a QuiverError with code
+ * (fromPackage, fromDir, build) — throw a QuiverError with code
  * `transport_error` and a message containing "Node.js" when `process` is not
  * available (i.e. in a simulated browser environment).
  */
@@ -61,10 +61,10 @@ describe("assertNode – browser guard", () => {
   it("throws transport_error with 'Node.js' message when process is undefined", () => {
     restore = maskProcess();
 
-    expect(() => assertNode("Quiver.fromSourceDir")).toThrow(QuiverError);
+    expect(() => assertNode("Quiver.fromDir")).toThrow(QuiverError);
 
     try {
-      assertNode("Quiver.fromSourceDir");
+      assertNode("Quiver.fromDir");
     } catch (err) {
       expect(err).toBeInstanceOf(QuiverError);
       const qe = err as QuiverError;

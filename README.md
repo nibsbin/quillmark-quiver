@@ -16,11 +16,11 @@ an npm package. Consumers decide how to consume it:
 
 - **Node consumers** load the source layout directly with `Quiver.fromPackage`.
 - **Browser consumers** run `Quiver.build(...)` as a build step and serve the
-  output as static assets, loading it with `Quiver.fromUrl`.
+  output as static assets, loading it with `Quiver.fromBuilt`.
 
-`Quiver.fromDir` and `Quiver.fromUrl` auto-detect whether the target is a
-source layout or build output, so consumer code does not branch on which
-shape is at the other end.
+Each loader names exactly what it loads: `fromPackage` and `fromDir` always
+read source layouts; `fromBuilt` always reads build output over HTTP/HTTPS.
+No auto-detection, no branching on artifact shape.
 
 This keeps the author flow to a single command (`npm publish` or `git tag`)
 and puts the deployment-topology decision where it belongs: with the
@@ -42,7 +42,10 @@ my-quiver/
 
 Recommended CI: use the bundled `@quillmark/quiver/testing` harness — it
 loads with `Quiver.fromDir` and exercises every quill so validation errors
-surface on publish, not on the consumer's build.
+surface on publish, not on the consumer's build. The harness uses
+`node:test` (built into Node 18+); no extra test-runner dependency
+required. If you prefer vitest/jest/mocha, write a 12-line loop against
+the main API instead.
 
 ## Consuming a quiver (Node)
 
@@ -67,32 +70,35 @@ Browsers cannot read the source layout directly, so build at deploy time and
 serve the output as static files:
 
 ```ts
-// build script (Node)
+// build script (Node) — typically wired into your existing build pipeline
 import { Quiver } from "@quillmark/quiver/node";
 
-const src = await Quiver.fromPackage("@org/my-quiver"); // resolves source dir
-await Quiver.build(src.dir, "./public/quivers/my-quiver");
+await Quiver.build(
+  "./node_modules/@org/my-quiver",
+  "./public/quivers/my-quiver",
+);
 ```
 
 ```ts
 // browser runtime
 import { Quiver, QuiverRegistry } from "@quillmark/quiver";
 
-const quiver = await Quiver.fromUrl("/quivers/my-quiver/");
+const quiver = await Quiver.fromBuilt("/quivers/my-quiver/");
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 ```
 
-## Advanced: pre-built distribution
+## Advanced: pre-built distribution to a CDN
 
 If you need to ship the runtime artifact directly (e.g. consumers cannot run
-a Node build step), `Quiver.build` produces a content-addressed output that
-can be loaded with `Quiver.fromDir` or `Quiver.fromUrl`:
+a Node build step), publish `Quiver.build` output to a CDN and have
+consumers point `fromBuilt` at the CDN URL:
 
 ```ts
 import { Quiver } from "@quillmark/quiver/node";
 
 await Quiver.build("./my-quiver", "./dist/my-quiver");
-const quiver = await Quiver.fromDir("./dist/my-quiver"); // auto-detects build output
+// upload ./dist/my-quiver to https://cdn.example.com/quivers/my-quiver/
+const quiver = await Quiver.fromBuilt("https://cdn.example.com/quivers/my-quiver/");
 ```
 
 ## Warm (prefetch all quills)

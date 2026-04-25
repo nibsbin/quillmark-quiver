@@ -1,6 +1,10 @@
 /**
- * Phase 5 integration tests — pack → fromPackedDir / fromHttp → registry →
+ * Integration tests — build → fromBuilt (mock fetch) → registry →
  * resolve → getQuill → mock render.
+ *
+ * Built artifacts are loaded over HTTP only (Quiver.fromBuilt accepts
+ * http(s):// URLs); these tests mock globalThis.fetch to serve files
+ * from a temporary directory written by Quiver.build.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -24,39 +28,88 @@ function tempDir(): string {
   return join(tmpdir(), `quiver-integration-test-${randomUUID()}`);
 }
 
+/**
+ * Mock globalThis.fetch to serve files from a build-output directory on disk.
+ * URL pattern: baseUrl + relativePath (with one slash between them).
+ */
+function makeMockFetch(
+  dir: string,
+  baseUrl: string,
+): { restore: () => void } {
+  const original = globalThis.fetch;
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+
+  globalThis.fetch = (async (url: string) => {
+    if (!url.startsWith(base)) {
+      return new Response(null, { status: 404 });
+    }
+    const relativePath = url.slice(base.length);
+    const filePath = join(dir, relativePath);
+    try {
+      const bytes = await readFile(filePath);
+      return new Response(bytes.buffer, { status: 200 });
+    } catch {
+      return new Response(null, { status: 404 });
+    }
+  }) as typeof globalThis.fetch;
+
+  return {
+    restore: () => {
+      if (original !== undefined) {
+        globalThis.fetch = original;
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (globalThis as any).fetch;
+      }
+    },
+  };
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("Integration: pack → fromPackedDir → registry → resolve → getQuill", () => {
+describe("Integration: build → fromBuilt → registry → resolve → getQuill", () => {
   const tmpDirs: string[] = [];
+  let mockFetch: { restore: () => void } | undefined;
 
   afterEach(async () => {
+    if (mockFetch !== undefined) {
+      mockFetch.restore();
+      mockFetch = undefined;
+    }
     for (const d of tmpDirs.splice(0)) {
       await rm(d, { recursive: true, force: true });
     }
   });
 
-  it("fromPackedDir catalog matches source quiver", async () => {
+  it("fromBuilt catalog matches source quiver", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-    const packed = await Quiver.fromPackedDir(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
 
-    expect(packed.name).toBe("sample");
-    expect(packed.quillNames().sort()).toEqual(["memo", "resume"]);
-    expect(packed.versionsOf("memo").sort()).toEqual(["1.0.0", "1.1.0"]);
-    expect(packed.versionsOf("resume")).toEqual(["2.0.0"]);
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    const built = await Quiver.fromBuilt(baseUrl);
+
+    expect(built.name).toBe("sample");
+    expect(built.quillNames().sort()).toEqual(["memo", "resume"]);
+    expect(built.versionsOf("memo").sort()).toEqual(["1.0.0", "1.1.0"]);
+    expect(built.versionsOf("resume")).toEqual(["2.0.0"]);
   });
 
-  it("registry.resolve works with packed quiver", async () => {
+  it("registry.resolve works with built quiver", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-    const packed = await Quiver.fromPackedDir(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
 
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    const built = await Quiver.fromBuilt(baseUrl);
     const { engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [packed] });
+    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
     expect(await registry.resolve("memo")).toBe("memo@1.1.0");
     expect(await registry.resolve("memo@1.0.0")).toBe("memo@1.0.0");
@@ -67,11 +120,14 @@ describe("Integration: pack → fromPackedDir → registry → resolve → getQu
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-    const packed = await Quiver.fromPackedDir(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
 
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    const built = await Quiver.fromBuilt(baseUrl);
     const { calls, engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [packed] });
+    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
     const quill = await registry.getQuill("memo@1.0.0");
 
@@ -85,11 +141,14 @@ describe("Integration: pack → fromPackedDir → registry → resolve → getQu
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-    const packed = await Quiver.fromPackedDir(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
 
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    const built = await Quiver.fromBuilt(baseUrl);
     const { engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [packed] });
+    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
     await expect(registry.getQuill("memo@9.9.9")).rejects.toThrow(
       expect.objectContaining({ code: "quill_not_found" }),
@@ -97,118 +156,49 @@ describe("Integration: pack → fromPackedDir → registry → resolve → getQu
   });
 });
 
-describe("Integration: pack → fromHttp (mock fetch) → registry → resolve → getQuill", () => {
+describe("Integration: fromBuilt error cases", () => {
+  let mockFetch: { restore: () => void } | undefined;
   const tmpDirs: string[] = [];
-  let originalFetch: typeof globalThis.fetch | undefined;
 
   afterEach(async () => {
-    // Restore fetch.
-    if (originalFetch !== undefined) {
-      globalThis.fetch = originalFetch;
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (globalThis as any).fetch;
+    if (mockFetch !== undefined) {
+      mockFetch.restore();
+      mockFetch = undefined;
     }
-    // Clean up temp dirs.
     for (const d of tmpDirs.splice(0)) {
       await rm(d, { recursive: true, force: true });
     }
   });
 
-  /**
-   * Mock globalThis.fetch to serve files from a packed directory on disk.
-   * URL pattern: baseUrl + relativePath (with one slash between them).
-   */
-  function mockFetchFromDir(dir: string, baseUrl: string): void {
-    originalFetch = globalThis.fetch;
-    const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-
-    globalThis.fetch = (async (url: string) => {
-      if (!url.startsWith(base)) {
-        return new Response(null, { status: 404 });
-      }
-      const relativePath = url.slice(base.length);
-      const filePath = join(dir, relativePath);
-      try {
-        const bytes = await readFile(filePath);
-        return new Response(bytes.buffer, { status: 200 });
-      } catch {
-        return new Response(null, { status: 404 });
-      }
-    }) as typeof globalThis.fetch;
-  }
-
-  it("fromHttp catalog matches source quiver", async () => {
-    const outDir = tempDir();
-    tmpDirs.push(outDir);
-
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-
-    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
-    mockFetchFromDir(outDir, baseUrl);
-
-    const packed = await Quiver.fromHttp(baseUrl);
-
-    expect(packed.name).toBe("sample");
-    expect(packed.quillNames().sort()).toEqual(["memo", "resume"]);
-    expect(packed.versionsOf("memo").sort()).toEqual(["1.0.0", "1.1.0"]);
-  });
-
-  it("registry.resolve and getQuill work with fromHttp quiver", async () => {
-    const outDir = tempDir();
-    tmpDirs.push(outDir);
-
-    await Quiver.pack(SAMPLE_FIXTURE, outDir);
-
-    const baseUrl = "https://mock.cdn.example.com/my-quiver";
-    mockFetchFromDir(outDir, baseUrl);
-
-    const packed = await Quiver.fromHttp(baseUrl);
-
-    const { calls, engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [packed] });
-
-    const ref = await registry.resolve("memo");
-    expect(ref).toBe("memo@1.1.0");
-
-    const quill = await registry.getQuill(ref);
-    expect(quill).toBeDefined();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.has("Quill.yaml")).toBe(true);
-  });
-
-  it("fromHttp with non-existent base URL throws transport_error", async () => {
-    originalFetch = globalThis.fetch;
-
+  it("fromBuilt with non-existent base URL throws transport_error", async () => {
+    const original = globalThis.fetch;
     globalThis.fetch = (async () =>
       new Response(null, { status: 404 })) as typeof globalThis.fetch;
+    mockFetch = {
+      restore: () => {
+        if (original !== undefined) globalThis.fetch = original;
+      },
+    };
 
     await expect(
-      Quiver.fromHttp("https://does-not-exist.example.com/quiver/"),
+      Quiver.fromBuilt("https://does-not-exist.example.com/quiver/"),
     ).rejects.toThrow(expect.objectContaining({ code: "transport_error" }));
   });
-});
 
-describe("Integration: fromPackedDir error cases", () => {
-  const tmpDirs: string[] = [];
-
-  afterEach(async () => {
-    for (const d of tmpDirs.splice(0)) {
-      await rm(d, { recursive: true, force: true });
-    }
-  });
-
-  it("fromPackedDir with empty directory throws transport_error", async () => {
+  it("fromBuilt with empty directory served over HTTP throws transport_error", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
     await mkdir(outDir, { recursive: true });
 
-    await expect(Quiver.fromPackedDir(outDir)).rejects.toThrow(
+    const baseUrl = "https://mock.cdn.example.com/empty/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    await expect(Quiver.fromBuilt(baseUrl)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 
-  it("fromPackedDir with malformed Quiver.json throws quiver_invalid", async () => {
+  it("fromBuilt with malformed Quiver.json throws quiver_invalid", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
     await mkdir(outDir, { recursive: true });
@@ -216,23 +206,35 @@ describe("Integration: fromPackedDir error cases", () => {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(join(outDir, "Quiver.json"), "not-json");
 
-    await expect(Quiver.fromPackedDir(outDir)).rejects.toThrow(
+    const baseUrl = "https://mock.cdn.example.com/malformed/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    await expect(Quiver.fromBuilt(baseUrl)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
 
-  it("fromPackedDir throws QuiverError", async () => {
+  it("fromBuilt throws QuiverError on missing pointer", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
     await mkdir(outDir, { recursive: true });
 
+    const baseUrl = "https://mock.cdn.example.com/missing/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
     let thrown: unknown;
     try {
-      await Quiver.fromPackedDir(outDir);
+      await Quiver.fromBuilt(baseUrl);
     } catch (e) {
       thrown = e;
     }
 
     expect(thrown).toBeInstanceOf(QuiverError);
+  });
+
+  it("fromBuilt rejects file:// URLs with transport_error", async () => {
+    await expect(
+      Quiver.fromBuilt("file:///tmp/quiver/"),
+    ).rejects.toThrow(expect.objectContaining({ code: "transport_error" }));
   });
 });

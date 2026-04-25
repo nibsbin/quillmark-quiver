@@ -1,7 +1,7 @@
 {
   "name": "@quillmark/quiver",
   "version": "0.2.0",
-  "description": "Quiver registry and packaging for Quillmark",
+  "description": "Quiver registry and build tooling for Quillmark",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -42,13 +42,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@quillmark/wasm": ">=0.59.0",
-    "vitest": ">=4.0.0"
-  },
-  "peerDependenciesMeta": {
-    "vitest": {
-      "optional": true
-    }
+    "@quillmark/wasm": ">=0.59.0"
   },
   "dependencies": {
     "fflate": "^0.8.2",

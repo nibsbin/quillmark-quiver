@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { packQuiver } from "../pack.js";
+import { buildQuiver } from "../build.js";
 import { unpackFiles } from "../bundle.js";
 import { Quiver } from "../quiver.js";
 import { QuiverError } from "../errors.js";
@@ -23,7 +23,7 @@ function tempDir(): string {
  * If `fonts` is provided for a quill entry, those files are written as font
  * bytes (same content for dedup testing).
  */
-async function buildQuiver(
+async function seedSourceQuiver(
   root: string,
   opts: {
     name?: string;
@@ -54,7 +54,7 @@ async function buildQuiver(
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("packQuiver — happy path (sample-quiver fixture)", () => {
+describe("buildQuiver — happy path (sample-quiver fixture)", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -66,7 +66,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("writes Quiver.json with a manifest pointer", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const raw = await readFile(join(out, "Quiver.json"), "utf-8");
     const pointer = JSON.parse(raw) as { manifest: string };
@@ -76,7 +76,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("manifest has version 1 and name 'sample'", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -92,7 +92,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("manifest has quill entries for memo@1.0.0, memo@1.1.0, resume@2.0.0", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -110,7 +110,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("creates one .zip bundle per quill version", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -128,7 +128,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("store/ directory exists and is empty (no fonts in sample fixture)", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const { readdir } = await import("node:fs/promises");
     const storeEntries = await readdir(join(out, "store"));
@@ -138,7 +138,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   it("manifest entries have fonts: {} for font-less quills", async () => {
     const out = tempDir();
     tmpDirs.push(out);
-    await packQuiver(SAMPLE_FIXTURE, out);
+    await buildQuiver(SAMPLE_FIXTURE, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -153,7 +153,7 @@ describe("packQuiver — happy path (sample-quiver fixture)", () => {
   });
 });
 
-describe("packQuiver — font dehydration & deduplication", () => {
+describe("buildQuiver — font dehydration & deduplication", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -169,7 +169,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
 
     const sharedFontBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
-    await buildQuiver(src, {
+    await seedSourceQuiver(src, {
       name: "font-test",
       quills: [
         {
@@ -185,7 +185,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
       ],
     });
 
-    await packQuiver(src, out);
+    await buildQuiver(src, out);
 
     const { readdir } = await import("node:fs/promises");
     const storeEntries = await readdir(join(out, "store"));
@@ -199,7 +199,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
 
     const sharedFontBytes = new Uint8Array([10, 20, 30, 40, 50]);
 
-    await buildQuiver(src, {
+    await seedSourceQuiver(src, {
       name: "font-test",
       quills: [
         {
@@ -215,7 +215,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
       ],
     });
 
-    await packQuiver(src, out);
+    await buildQuiver(src, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -236,7 +236,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
 
     const fontBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
-    await buildQuiver(src, {
+    await seedSourceQuiver(src, {
       name: "font-test",
       quills: [
         {
@@ -247,7 +247,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
       ],
     });
 
-    await packQuiver(src, out);
+    await buildQuiver(src, out);
 
     const ptr = JSON.parse(await readFile(join(out, "Quiver.json"), "utf-8")) as {
       manifest: string;
@@ -264,7 +264,7 @@ describe("packQuiver — font dehydration & deduplication", () => {
   });
 });
 
-describe("packQuiver — determinism", () => {
+describe("buildQuiver — determinism", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -278,8 +278,8 @@ describe("packQuiver — determinism", () => {
     const out2 = tempDir();
     tmpDirs.push(out1, out2);
 
-    await packQuiver(SAMPLE_FIXTURE, out1);
-    await packQuiver(SAMPLE_FIXTURE, out2);
+    await buildQuiver(SAMPLE_FIXTURE, out1);
+    await buildQuiver(SAMPLE_FIXTURE, out2);
 
     const getManifest = async (outDir: string) => {
       const ptr = JSON.parse(
@@ -303,8 +303,8 @@ describe("packQuiver — determinism", () => {
     const out2 = tempDir();
     tmpDirs.push(out1, out2);
 
-    await packQuiver(SAMPLE_FIXTURE, out1);
-    await packQuiver(SAMPLE_FIXTURE, out2);
+    await buildQuiver(SAMPLE_FIXTURE, out1);
+    await buildQuiver(SAMPLE_FIXTURE, out2);
 
     const ptr1 = JSON.parse(
       await readFile(join(out1, "Quiver.json"), "utf-8"),
@@ -317,7 +317,7 @@ describe("packQuiver — determinism", () => {
   });
 });
 
-describe("packQuiver — invalid source", () => {
+describe("buildQuiver — invalid source", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -338,7 +338,7 @@ describe("packQuiver — invalid source", () => {
     await mkdir(versionDir, { recursive: true });
     await writeFile(join(versionDir, "Quill.yaml"), "name: myquill\n");
 
-    await expect(packQuiver(src, out)).rejects.toThrow(
+    await expect(buildQuiver(src, out)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -354,13 +354,13 @@ describe("packQuiver — invalid source", () => {
     await mkdir(src, { recursive: true });
     // No Quiver.yaml
 
-    await expect(packQuiver(src, out)).rejects.toThrow(
+    await expect(buildQuiver(src, out)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 });
 
-describe("packQuiver — I/O error", () => {
+describe("buildQuiver — I/O error", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -380,13 +380,13 @@ describe("packQuiver — I/O error", () => {
 
     const out = join(parentFile, "out");
 
-    await expect(packQuiver(SAMPLE_FIXTURE, out)).rejects.toThrow(
+    await expect(buildQuiver(SAMPLE_FIXTURE, out)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 });
 
-describe("Quiver.pack (static method delegation)", () => {
+describe("Quiver.build (static method delegation)", () => {
   const tmpDirs: string[] = [];
 
   afterEach(async () => {
@@ -395,11 +395,11 @@ describe("Quiver.pack (static method delegation)", () => {
     }
   });
 
-  it("Quiver.pack delegates to packQuiver and writes Quiver.json", async () => {
+  it("Quiver.build delegates to buildQuiver and writes Quiver.json", async () => {
     const out = tempDir();
     tmpDirs.push(out);
 
-    await Quiver.pack(SAMPLE_FIXTURE, out);
+    await Quiver.build(SAMPLE_FIXTURE, out);
 
     const raw = await readFile(join(out, "Quiver.json"), "utf-8");
     const pointer = JSON.parse(raw) as { manifest: string };

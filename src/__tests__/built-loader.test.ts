@@ -1,17 +1,17 @@
 /**
- * Tests for packed-loader.ts — all scenarios use an in-memory mock transport
+ * Tests for built-loader.ts — all scenarios use an in-memory mock transport
  * so no filesystem or network is needed.
  */
 
 import { describe, it, expect } from "vitest";
-import { loadPackedQuiver } from "../packed-loader.js";
+import { loadBuiltQuiver } from "../built-loader.js";
 import { packFiles } from "../bundle.js";
 import { QuiverError } from "../errors.js";
-import type { PackedTransport } from "../packed-loader.js";
+import type { BuiltTransport } from "../built-loader.js";
 
 // ─── In-memory mock transport ─────────────────────────────────────────────────
 
-class MemTransport implements PackedTransport {
+class MemTransport implements BuiltTransport {
   private readonly store: Map<string, Uint8Array>;
   readonly fetchLog: string[] = [];
 
@@ -99,32 +99,32 @@ function buildMinimalTransport(): MemTransport {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("loadPackedQuiver — happy path", () => {
+describe("loadBuiltQuiver — happy path", () => {
   it("returns correct name from manifest", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     expect(q.name).toBe("sample");
   });
 
   it("quillNames() returns sorted quill names", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     expect(q.quillNames()).toEqual(["memo", "resume"]);
   });
 
   it("versionsOf() returns versions sorted descending", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     expect(q.versionsOf("memo")).toEqual(["1.1.0", "1.0.0"]);
     expect(q.versionsOf("resume")).toEqual(["2.0.0"]);
   });
 
   it("versionsOf() returns [] for unknown quill", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     expect(q.versionsOf("nonexistent")).toEqual([]);
   });
 });
 
-describe("loadPackedQuiver — loadTree rehydration", () => {
+describe("loadBuiltQuiver — loadTree rehydration", () => {
   it("loadTree returns file tree with content files", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     const tree = await q.loadTree("memo", "1.0.0");
 
     expect(tree).toBeInstanceOf(Map);
@@ -133,7 +133,7 @@ describe("loadPackedQuiver — loadTree rehydration", () => {
   });
 
   it("loadTree returns correct bytes for content files", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     const tree = await q.loadTree("memo", "1.0.0");
 
     const quillYaml = new TextDecoder().decode(tree.get("Quill.yaml"));
@@ -161,7 +161,7 @@ describe("loadPackedQuiver — loadTree rehydration", () => {
       [`store/${fontHash}`]: fontBytes,
     });
 
-    const q = await loadPackedQuiver(transport);
+    const q = await loadBuiltQuiver(transport);
     const tree = await q.loadTree("memo", "1.0.0");
 
     expect(tree.has("fonts/body.ttf")).toBe(true);
@@ -169,14 +169,14 @@ describe("loadPackedQuiver — loadTree rehydration", () => {
   });
 
   it("loadTree throws transport_error for unknown name/version", async () => {
-    const q = await loadPackedQuiver(buildMinimalTransport());
+    const q = await loadBuiltQuiver(buildMinimalTransport());
     await expect(q.loadTree("memo", "9.9.9")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 });
 
-describe("loadPackedQuiver — font coalescing", () => {
+describe("loadBuiltQuiver — font coalescing", () => {
   it("two concurrent loadTree calls sharing a font fetch it exactly once", async () => {
     const fontHash = "deadbeefdeadbeefdeadbeefdeadbeef";
     const fontBytes = new Uint8Array([1, 2, 3]);
@@ -207,7 +207,7 @@ describe("loadPackedQuiver — font coalescing", () => {
       [`store/${fontHash}`]: fontBytes,
     });
 
-    const q = await loadPackedQuiver(transport);
+    const q = await loadBuiltQuiver(transport);
 
     // Fire both concurrently.
     await Promise.all([q.loadTree("quillA", "1.0.0"), q.loadTree("quillB", "1.0.0")]);
@@ -220,10 +220,10 @@ describe("loadPackedQuiver — font coalescing", () => {
   });
 });
 
-describe("loadPackedQuiver — invalid pointer", () => {
+describe("loadBuiltQuiver — invalid pointer", () => {
   it("missing Quiver.json → transport_error", async () => {
     const transport = new MemTransport({});
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
@@ -232,7 +232,7 @@ describe("loadPackedQuiver — invalid pointer", () => {
     const transport = new MemTransport({
       "Quiver.json": enc.encode("not-json"),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -241,7 +241,7 @@ describe("loadPackedQuiver — invalid pointer", () => {
     const transport = new MemTransport({
       "Quiver.json": enc.encode(JSON.stringify({ other: "value" })),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -252,13 +252,13 @@ describe("loadPackedQuiver — invalid pointer", () => {
         JSON.stringify({ manifest: "manifest.abc.json", extra: true }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
 });
 
-describe("loadPackedQuiver — invalid manifest", () => {
+describe("loadBuiltQuiver — invalid manifest", () => {
   function transportWith(manifestOverride: Record<string, unknown>): MemTransport {
     return new MemTransport({
       "Quiver.json": makePointer("manifest.abc.json"),
@@ -268,19 +268,19 @@ describe("loadPackedQuiver — invalid manifest", () => {
 
   it("missing version field → quiver_invalid", async () => {
     await expect(
-      loadPackedQuiver(transportWith({ name: "test", quills: [] })),
+      loadBuiltQuiver(transportWith({ name: "test", quills: [] })),
     ).rejects.toThrow(expect.objectContaining({ code: "quiver_invalid" }));
   });
 
   it("version !== 1 → quiver_invalid", async () => {
     await expect(
-      loadPackedQuiver(transportWith({ version: 2, name: "test", quills: [] })),
+      loadBuiltQuiver(transportWith({ version: 2, name: "test", quills: [] })),
     ).rejects.toThrow(expect.objectContaining({ code: "quiver_invalid" }));
   });
 
   it("unknown top-level field → quiver_invalid", async () => {
     await expect(
-      loadPackedQuiver(
+      loadBuiltQuiver(
         transportWith({ version: 1, name: "test", quills: [], extra: true }),
       ),
     ).rejects.toThrow(expect.objectContaining({ code: "quiver_invalid" }));
@@ -288,7 +288,7 @@ describe("loadPackedQuiver — invalid manifest", () => {
 
   it("non-canonical semver in quill entry → quiver_invalid", async () => {
     await expect(
-      loadPackedQuiver(
+      loadBuiltQuiver(
         transportWith({
           version: 1,
           name: "test",
@@ -306,7 +306,7 @@ describe("loadPackedQuiver — invalid manifest", () => {
   });
 });
 
-describe("loadPackedQuiver — missing bundle or store entry", () => {
+describe("loadBuiltQuiver — missing bundle or store entry", () => {
   it("manifest references a bundle zip that transport can't fetch → transport_error", async () => {
     const manifestBytes = makeManifest("test", [
       { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.deadbeef.zip" },
@@ -317,7 +317,7 @@ describe("loadPackedQuiver — missing bundle or store entry", () => {
       // bundle NOT included
     });
 
-    const q = await loadPackedQuiver(transport);
+    const q = await loadBuiltQuiver(transport);
     await expect(q.loadTree("foo", "1.0.0")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
@@ -340,21 +340,21 @@ describe("loadPackedQuiver — missing bundle or store entry", () => {
       // store/cafebabecafebabecafebabecafebabe NOT included
     });
 
-    const q = await loadPackedQuiver(transport);
+    const q = await loadBuiltQuiver(transport);
     await expect(q.loadTree("foo", "1.0.0")).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 });
 
-describe("loadPackedQuiver — path validation (security)", () => {
+describe("loadBuiltQuiver — path validation (security)", () => {
   it("pointer manifest with path traversal → quiver_invalid", async () => {
     const transport = new MemTransport({
       "Quiver.json": enc.encode(
         JSON.stringify({ manifest: "../../etc/passwd" }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -365,7 +365,7 @@ describe("loadPackedQuiver — path validation (security)", () => {
         JSON.stringify({ manifest: "/etc/passwd" }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -388,7 +388,7 @@ describe("loadPackedQuiver — path validation (security)", () => {
         }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -411,7 +411,7 @@ describe("loadPackedQuiver — path validation (security)", () => {
         }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -434,13 +434,13 @@ describe("loadPackedQuiver — path validation (security)", () => {
         }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
 });
 
-describe("loadPackedQuiver — duplicate entry detection", () => {
+describe("loadBuiltQuiver — duplicate entry detection", () => {
   it("duplicate name@version in manifest → quiver_invalid", async () => {
     const transport = new MemTransport({
       "Quiver.json": makePointer("manifest.abc123.json"),
@@ -465,7 +465,7 @@ describe("loadPackedQuiver — duplicate entry detection", () => {
         }),
       ),
     });
-    await expect(loadPackedQuiver(transport)).rejects.toThrow(
+    await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -480,7 +480,7 @@ describe("loadPackedQuiver — duplicate entry detection", () => {
       "foo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: foo\n" }),
       "foo@2.0.0.ddeeff.zip": makeBundle({ "Quill.yaml": "name: foo\n" }),
     });
-    const q = await loadPackedQuiver(transport);
+    const q = await loadBuiltQuiver(transport);
     expect(q.versionsOf("foo")).toEqual(["2.0.0", "1.0.0"]);
   });
 });
