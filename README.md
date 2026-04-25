@@ -1,6 +1,6 @@
 # @quillmark/quiver
 
-Quiver registry and build tooling for Quillmark — load, compose, and build collections of quills for rendering with `@quillmark/wasm`.
+Load and build collections of quills for rendering with `@quillmark/wasm`.
 
 ## Install
 
@@ -51,17 +51,25 @@ the main API instead.
 
 ```ts
 import { Quillmark, Document } from "@quillmark/wasm";
-import { Quiver, QuiverRegistry } from "@quillmark/quiver/node";
-
-const quiver = await Quiver.fromPackage("@org/my-quiver");
+import { Quiver } from "@quillmark/quiver/node";
 
 const engine = new Quillmark();
-const registry = new QuiverRegistry({ engine, quivers: [quiver] });
+const quiver = await Quiver.fromPackage("@org/my-quiver");
 
 const doc = Document.fromMarkdown(markdownString);
-const canonicalRef = await registry.resolve(doc.quillRef);
-const quill = await registry.getQuill(canonicalRef);
+const quill = await quiver.getQuill(doc.quillRef, { engine });
 const result = quill.render(doc, { format: "pdf" });
+```
+
+`getQuill` accepts both selector refs (`"memo"`, `"memo@1"`) and canonical
+refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
+`engine.quill(tree)`, and caches per (engine, canonical-ref). Concurrent
+calls for the same ref share a single load.
+
+If you only need the canonical ref (without materializing), use `resolve`:
+
+```ts
+const canonicalRef = await quiver.resolve("memo"); // "memo@1.1.0"
 ```
 
 ## Consuming a quiver (browser)
@@ -81,10 +89,10 @@ await Quiver.build(
 
 ```ts
 // browser runtime
-import { Quiver, QuiverRegistry } from "@quillmark/quiver";
+import { Quiver } from "@quillmark/quiver";
 
 const quiver = await Quiver.fromBuilt("/quivers/my-quiver/");
-const registry = new QuiverRegistry({ engine, quivers: [quiver] });
+const quill = await quiver.getQuill(doc.quillRef, { engine });
 ```
 
 ## Advanced: pre-built distribution to a CDN
@@ -104,19 +112,7 @@ const quiver = await Quiver.fromBuilt("https://cdn.example.com/quivers/my-quiver
 ## Warm (prefetch all quills)
 
 ```ts
-await registry.warm();
-```
-
-## Multi-quiver composition
-
-Quivers are scanned in order. The first quiver with any matching candidate wins;
-the highest matching version within that quiver is returned.
-
-```ts
-const registry = new QuiverRegistry({
-  engine,
-  quivers: [primaryQuiver, fallbackQuiver],
-});
+await quiver.warm({ engine });
 ```
 
 ## Error handling
@@ -127,7 +123,7 @@ All errors are instances of `QuiverError` with a `code` field.
 import { QuiverError } from "@quillmark/quiver";
 
 try {
-  const canonicalRef = await registry.resolve("unknown_quill");
+  await quiver.resolve("unknown_quill");
 } catch (err) {
   if (err instanceof QuiverError) {
     console.error(err.code);    // e.g. "quill_not_found"
@@ -137,7 +133,7 @@ try {
 }
 ```
 
-Error codes: `invalid_ref`, `quill_not_found`, `quiver_invalid`, `transport_error`, `quiver_collision`.
+Error codes: `invalid_ref`, `quill_not_found`, `quiver_invalid`, `transport_error`.
 
 ## Full specification
 

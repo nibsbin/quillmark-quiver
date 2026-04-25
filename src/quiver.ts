@@ -8,6 +8,9 @@
 import { QuiverError } from "./errors.js";
 import { assertNode } from "./assert-node.js";
 import type { BuildOptions } from "./build.js";
+import type { QuillmarkLike, QuillLike } from "./engine-types.js";
+import { parseQuillRef } from "./ref.js";
+import { matchesSemverSelector, chooseHighestVersion } from "./semver.js";
 
 /** @internal Internal loader strategy: source or build output. */
 export interface QuiverLoader {
@@ -19,6 +22,16 @@ export class Quiver {
 
   readonly #catalog: ReadonlyMap<string, readonly string[]>;
   readonly #loader: QuiverLoader;
+
+  /**
+   * Per-engine cache of materialized quills, keyed by canonical ref.
+   * WeakMap so engines can be GC'd; Promise values so concurrent
+   * getQuill calls coalesce into a single load.
+   */
+  readonly #cache: WeakMap<
+    QuillmarkLike,
+    Map<string, Promise<QuillLike>>
+  > = new WeakMap();
 
   /**
    * Private constructor — use static factory methods.
@@ -156,7 +169,8 @@ export class Quiver {
    * Lazily loads the file tree for a specific quill version.
    *
    * Returns `Map<string, Uint8Array>` suitable for `engine.quill(tree)`.
-   * Does NOT cache the result — caching is the registry's concern.
+   * Does NOT cache the result — caching of materialized Quill instances
+   * happens in `getQuill`.
    *
    * Throws `transport_error` if name/version not in catalog or I/O fails.
    */
@@ -170,5 +184,105 @@ export class Quiver {
       );
     }
     return this.#loader.loadTree(name, version);
+  }
+
+  /**
+   * Resolves a selector ref → canonical ref (e.g. "memo" → "memo@1.1.0").
+   *
+   * Selector forms: `name`, `name@x`, `name@x.y`, `name@x.y.z`. Picks the
+   * highest matching version in this quiver.
+   *
+   * Throws:
+   *   - `invalid_ref` if ref fails parseQuillRef
+   *   - `quill_not_found` if no version matches
+   */
+  async resolve(ref: string): Promise<string> {
+    const parsed = parseQuillRef(ref);
+    const versions = this.#catalog.get(parsed.name);
+
+    if (versions && versions.length > 0) {
+      const candidates =
+        parsed.selector === undefined
+          ? [...versions]
+          : versions.filter((v) => matchesSemverSelector(v, parsed.selector!));
+
+      if (candidates.length > 0) {
+        // chooseHighestVersion returns null only for empty arrays; candidates is non-empty.
+        const winner = chooseHighestVersion(candidates)!;
+        return `${parsed.name}@${winner}`;
+      }
+    }
+
+    throw new QuiverError(
+      "quill_not_found",
+      `No quill found for ref "${ref}" in quiver "${this.name}".`,
+      { ref, quiverName: this.name },
+    );
+  }
+
+  /**
+   * Returns a render-ready `Quill` for a ref (selector or canonical).
+   *
+   * Selector refs (e.g. `"memo"`, `"memo@1"`) are resolved to canonical
+   * form first. Materializes via `engine.quill(tree)` on first call;
+   * caches per (engine, canonical-ref). Concurrent calls for the same ref
+   * coalesce into a single load.
+   *
+   * Throws:
+   *   - `invalid_ref` if ref is malformed
+   *   - `quill_not_found` if ref does not match any version in this quiver
+   *   - propagates I/O errors from loadTree unchanged
+   *   - propagates engine errors from engine.quill() unchanged
+   */
+  async getQuill(
+    ref: string,
+    opts: { engine: QuillmarkLike },
+  ): Promise<QuillLike> {
+    const canonicalRef = await this.resolve(ref);
+    const engine = opts.engine;
+
+    let perEngine = this.#cache.get(engine);
+    if (perEngine === undefined) {
+      perEngine = new Map();
+      this.#cache.set(engine, perEngine);
+    }
+
+    let entry = perEngine.get(canonicalRef);
+    if (entry === undefined) {
+      entry = this.#materializeQuill(canonicalRef, engine).catch((err) => {
+        perEngine!.delete(canonicalRef);
+        throw err;
+      });
+      perEngine.set(canonicalRef, entry);
+    }
+    return entry;
+  }
+
+  /** Internal: load tree + invoke engine.quill. Errors propagate unchanged. */
+  async #materializeQuill(
+    canonicalRef: string,
+    engine: QuillmarkLike,
+  ): Promise<QuillLike> {
+    const at = canonicalRef.indexOf("@");
+    const name = canonicalRef.slice(0, at);
+    const version = canonicalRef.slice(at + 1);
+    const tree = await this.loadTree(name, version);
+    return engine.quill(tree);
+  }
+
+  /**
+   * Warms every quill version in this quiver against `engine`. Fail-fast.
+   *
+   * Calls `getQuill` for every (name, version) in parallel. Already-cached
+   * refs resolve instantly (idempotent). Rejects on the first failure.
+   */
+  async warm(opts: { engine: QuillmarkLike }): Promise<void> {
+    const promises: Promise<QuillLike>[] = [];
+    for (const name of this.quillNames()) {
+      for (const version of this.versionsOf(name)) {
+        promises.push(this.getQuill(`${name}@${version}`, opts));
+      }
+    }
+    await Promise.all(promises);
   }
 }

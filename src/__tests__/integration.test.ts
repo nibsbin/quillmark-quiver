@@ -1,6 +1,6 @@
 /**
- * Integration tests — build → fromBuilt (mock fetch) → registry →
- * resolve → getQuill → mock render.
+ * Integration tests — build → fromBuilt (mock fetch) → resolve → getQuill →
+ * mock render.
  *
  * Built artifacts are loaded over HTTP only (Quiver.fromBuilt accepts
  * http(s):// URLs); these tests mock globalThis.fetch to serve files
@@ -13,7 +13,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { Quiver } from "../quiver.js";
-import { QuiverRegistry } from "../registry.js";
 import { QuiverError } from "../errors.js";
 import { makeMockEngine } from "./helpers/mock-engine.js";
 
@@ -67,7 +66,7 @@ function makeMockFetch(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("Integration: build → fromBuilt → registry → resolve → getQuill", () => {
+describe("Integration: build → fromBuilt → resolve → getQuill", () => {
   const tmpDirs: string[] = [];
   let mockFetch: { restore: () => void } | undefined;
 
@@ -98,7 +97,7 @@ describe("Integration: build → fromBuilt → registry → resolve → getQuill
     expect(built.versionsOf("resume")).toEqual(["2.0.0"]);
   });
 
-  it("registry.resolve works with built quiver", async () => {
+  it("quiver.resolve works with built quiver", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
@@ -108,15 +107,13 @@ describe("Integration: build → fromBuilt → registry → resolve → getQuill
     mockFetch = makeMockFetch(outDir, baseUrl);
 
     const built = await Quiver.fromBuilt(baseUrl);
-    const { engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
-    expect(await registry.resolve("memo")).toBe("memo@1.1.0");
-    expect(await registry.resolve("memo@1.0.0")).toBe("memo@1.0.0");
-    expect(await registry.resolve("resume")).toBe("resume@2.0.0");
+    expect(await built.resolve("memo")).toBe("memo@1.1.0");
+    expect(await built.resolve("memo@1.0.0")).toBe("memo@1.0.0");
+    expect(await built.resolve("resume")).toBe("resume@2.0.0");
   });
 
-  it("registry.getQuill returns a mock quill with correct tree", async () => {
+  it("quiver.getQuill returns a mock quill with correct tree", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
@@ -127,9 +124,8 @@ describe("Integration: build → fromBuilt → registry → resolve → getQuill
 
     const built = await Quiver.fromBuilt(baseUrl);
     const { calls, engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
-    const quill = await registry.getQuill("memo@1.0.0");
+    const quill = await built.getQuill("memo@1.0.0", { engine });
 
     expect(quill).toBeDefined();
     expect(typeof quill.render).toBe("function");
@@ -137,7 +133,7 @@ describe("Integration: build → fromBuilt → registry → resolve → getQuill
     expect(calls[0]!.has("Quill.yaml")).toBe(true);
   });
 
-  it("registry.getQuill for unknown version throws quill_not_found", async () => {
+  it("quiver.getQuill for unknown version throws quill_not_found", async () => {
     const outDir = tempDir();
     tmpDirs.push(outDir);
 
@@ -148,9 +144,8 @@ describe("Integration: build → fromBuilt → registry → resolve → getQuill
 
     const built = await Quiver.fromBuilt(baseUrl);
     const { engine } = makeMockEngine();
-    const registry = new QuiverRegistry({ engine, quivers: [built] });
 
-    await expect(registry.getQuill("memo@9.9.9")).rejects.toThrow(
+    await expect(built.getQuill("memo@9.9.9", { engine })).rejects.toThrow(
       expect.objectContaining({ code: "quill_not_found" }),
     );
   });

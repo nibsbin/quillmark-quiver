@@ -2,8 +2,7 @@ export type QuiverErrorCode =
   | "invalid_ref"
   | "quill_not_found"
   | "quiver_invalid"
-  | "transport_error"
-  | "quiver_collision";
+  | "transport_error";
 
 export class QuiverError extends Error {
   readonly code: QuiverErrorCode;

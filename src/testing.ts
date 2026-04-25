@@ -17,7 +17,6 @@
 
 import { describe, it, before } from "node:test";
 import { Quiver } from "./quiver.js";
-import { QuiverRegistry } from "./registry.js";
 import type { QuillmarkLike } from "./engine-types.js";
 
 /**
@@ -35,12 +34,10 @@ export function runQuiverTests(
   engine: QuillmarkLike,
 ): void {
   describe("Quiver", () => {
-    let registry!: QuiverRegistry;
     let quiver!: Quiver;
 
     before(async () => {
       quiver = await Quiver.fromDir(metaUrlOrDir);
-      registry = new QuiverRegistry({ engine, quivers: [quiver] });
     });
 
     it("has at least one quill", () => {
@@ -52,7 +49,7 @@ export function runQuiverTests(
     it("compiles every quill version without error", async () => {
       for (const name of quiver.quillNames()) {
         for (const version of quiver.versionsOf(name)) {
-          const quill = await registry.getQuill(`${name}@${version}`);
+          const quill = await quiver.getQuill(`${name}@${version}`, { engine });
           if (typeof quill.render !== "function") {
             throw new Error(
               `${name}@${version}: engine returned non-conforming Quill`,
