@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Quiver } from "../quiver.js";
+import { Quiver } from "../node.js";
 import type { QuillmarkLike, QuillLike } from "../engine-types.js";
 import { makeMockEngine } from "./helpers/mock-engine.js";
 

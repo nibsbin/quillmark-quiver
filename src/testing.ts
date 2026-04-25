@@ -16,7 +16,10 @@
  */
 
 import { describe, it, before } from "node:test";
-import { Quiver } from "./quiver.js";
+// Import from the Node entry: this installs the runtime patch so
+// `Quiver.fromDir` is callable at runtime, and gives us the augmented
+// static-method type signature.
+import { Quiver } from "./node.js";
 import type { QuillmarkLike } from "./engine-types.js";
 
 /**
