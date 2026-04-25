@@ -160,7 +160,7 @@ Important implications:
 - No engine quill registry in the JS binding; no `registerQuill`, `hasQuill`, or engine-level `render(doc)` in Quiver’s flow
 - Quiver owns mapping from canonical ref → in-memory tree → `Quill` instance
 - Cache optimization is in-process reuse of `Quill` instances, not registration checks
-- Path-based loading (`quill_from_path`) exists in **other** bindings only; in Node, Quiver reads files and assembles `tree` for `engine.quill(tree)` (see upstream `references/quillmark/docs/integration/javascript/api.md`)
+- Path-based loading (`quill_from_path`) exists in **other** bindings only; in Node, Quiver reads files and assembles `tree` for `engine.quill(tree)` (see the upstream `@quillmark/wasm` JS/WASM API docs)
 
 For advanced dynamic-asset behavior, defer to Quillmark’s JS/WASM docs; the default integration path here is `engine.quill` + `quill.render`.
 
@@ -414,7 +414,7 @@ class QuiverError extends Error {
 
 **No render wrapper.** Callers invoke `quill.render(doc, opts?)` (and `quill.open(doc)` when needed) after `getQuill()`. Quiver never mirrors Quillmark render APIs.
 
-**Internal (not exported):** `QuiverManifest` (runtime shape), `parseQuillRef`, in-flight coalescing state, source-vs-built layout detection.
+**Internal (not exported):** `BuiltManifest` (runtime shape), `parseQuillRef`, in-flight coalescing state, source-vs-built layout detection.
 
 Hot-path flow:
 ```ts
@@ -441,7 +441,7 @@ const result = quill.render(doc, { format: "pdf" });
   test runners wire their own loops against the main API.
 
 **Dependencies:**
-- Peer: `@quillmark/wasm@>=0.59.0-rc.2` with `Quillmark`, `Document.fromMarkdown`, `engine.quill(tree)`, and `quill.render(doc, opts?)` APIs.
+- Peer: `@quillmark/wasm@>=0.59.0` with `Quillmark`, `Document.fromMarkdown`, `engine.quill(tree)`, and `quill.render(doc, opts?)` APIs.
 - Runtime: `fflate ^0.8.2` for zip read/write (Node + browser)
 - Dev-only: `node:crypto` (MD5 hashing in `build()` — never reached at runtime)
 - No test-runner peer dependency; `/testing` uses `node:test` (built-in)
@@ -474,17 +474,6 @@ All V1 planner questions resolved; implementation plan can proceed against the s
 6. ~~Build output directory structure~~ → See "Runtime Artifact Format (normative)".
 7. ~~Node/browser entrypoint split~~ → See "Package Structure": main + `/node` subpath, single `Quiver` class.
 8. ~~Final exported type names~~ → `Quiver`, `QuiverError`. Hot-path entry is `Quiver.getQuill(ref, { engine })`.
-
----
-
-## References
-
-Local copies in this repo for `@quillmark/quiver` implementation:
-
-- `references/quillmark-registry/` — prior `@quillmark/registry` source and patterns to mine or replace
-- `references/quillmark/docs/integration/javascript/api.md` — JS/WASM API this package integrates with
-- `references/quillmark/prose/designs/WASM.md` — WASM binding shape
-- `references/quillmark/prose/taskings/quill_render_api.md` — upstream render API overhaul (cross-binding; use the JS/WASM sections for Node)
 
 ---
 
