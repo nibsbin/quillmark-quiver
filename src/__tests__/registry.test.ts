@@ -36,7 +36,7 @@ async function makeTempQuiver(opts: {
     }
   }
 
-  return Quiver.fromSourceDir(root);
+  return Quiver.fromDir(root);
 }
 
 afterEach(async () => {
@@ -49,35 +49,35 @@ afterEach(async () => {
 
 describe("QuiverRegistry.resolve — single quiver", () => {
   it('1. unqualified "memo" → "memo@1.1.0" (highest)', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     expect(await registry.resolve("memo")).toBe("memo@1.1.0");
   });
 
   it('2. "memo@1" → "memo@1.1.0" (highest 1.*.*)', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     expect(await registry.resolve("memo@1")).toBe("memo@1.1.0");
   });
 
   it('3. "memo@1.0" → "memo@1.0.0" (highest 1.0.*)', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     expect(await registry.resolve("memo@1.0")).toBe("memo@1.0.0");
   });
 
   it('4. "memo@1.0.0" → "memo@1.0.0" (exact)', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     expect(await registry.resolve("memo@1.0.0")).toBe("memo@1.0.0");
   });
 
   it('5. "memo@2.0.0" (not present) → quill_not_found', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     await expect(registry.resolve("memo@2.0.0")).rejects.toThrow(
@@ -86,7 +86,7 @@ describe("QuiverRegistry.resolve — single quiver", () => {
   });
 
   it('6. "memo@^1" → invalid_ref (from parseQuillRef)', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     await expect(registry.resolve("memo@^1")).rejects.toThrow(
@@ -95,7 +95,7 @@ describe("QuiverRegistry.resolve — single quiver", () => {
   });
 
   it('7. "" (empty string) → invalid_ref', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
     await expect(registry.resolve("")).rejects.toThrow(
@@ -207,7 +207,7 @@ describe("QuiverRegistry constructor — collision detection", () => {
 
 describe("QuiverRegistry.getQuill", () => {
   it("12. getQuill('memo@1.0.0') returns mock QuillLike; engine.quill called with tree containing Quill.yaml", async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { calls, engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
@@ -220,7 +220,7 @@ describe("QuiverRegistry.getQuill", () => {
   });
 
   it("13. same canonical ref returns cached instance (identity equality)", async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
@@ -231,7 +231,7 @@ describe("QuiverRegistry.getQuill", () => {
   });
 
   it("13b. engine.quill called exactly once for repeated getQuill of same ref", async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { calls, engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
@@ -242,7 +242,7 @@ describe("QuiverRegistry.getQuill", () => {
   });
 
   it('14. getQuill("memo") (not canonical) → invalid_ref', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
@@ -252,7 +252,7 @@ describe("QuiverRegistry.getQuill", () => {
   });
 
   it('15. getQuill("memo@1.2.3") (version not present) → quill_not_found', async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     const { engine } = makeMockEngine();
     const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
@@ -262,7 +262,7 @@ describe("QuiverRegistry.getQuill", () => {
   });
 
   it("16. if engine.quill throws, error propagates and in-flight entry is cleared (retry works)", async () => {
-    const quiver = await Quiver.fromSourceDir(SAMPLE_FIXTURE);
+    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
     let callCount = 0;
     const flakyEngine: QuillmarkLike = {
       quill(tree: Map<string, Uint8Array>): QuillLike {

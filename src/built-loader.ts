@@ -1,10 +1,10 @@
 /**
- * Packed Quiver loader — browser-safe at module level.
+ * Built-quiver loader — browser-safe at module level.
  * Internal; not exported from index.ts.
  *
  * Exposes:
- *   - PackedTransport interface (also used by FsTransport / HttpTransport)
- *   - loadPackedQuiver(transport) → Quiver
+ *   - BuiltTransport interface (implemented by HttpTransport)
+ *   - loadBuiltQuiver(transport) → Quiver
  *
  * NO static node: imports — this module is safe to load in browser contexts.
  */
@@ -17,26 +17,26 @@ import { Quiver } from "./quiver.js";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
-interface PackedQuillEntry {
+interface BuiltQuillEntry {
   name: string;
   version: string;
   bundle: string;
   fonts: Record<string, string>;
 }
 
-interface PackedManifest {
+interface BuiltManifest {
   version: 1;
   name: string;
-  quills: PackedQuillEntry[];
+  quills: BuiltQuillEntry[];
 }
 
 // ─── Public interface (internal to the package) ───────────────────────────────
 
 /**
  * Transport abstraction: fetch raw bytes by relative path within the packed
- * artifact. Implementations are FsTransport (Node) and HttpTransport (browser).
+ * artifact. Sole implementation is HttpTransport (browser + Node).
  */
-export interface PackedTransport {
+export interface BuiltTransport {
   fetchBytes(relativePath: string): Promise<Uint8Array>;
 }
 
@@ -73,16 +73,16 @@ function validateFontHash(hash: string, context: string): void {
   }
 }
 
-// ─── PackedLoader implementation ─────────────────────────────────────────────
+// ─── BuiltLoader implementation ─────────────────────────────────────────────
 
-class PackedLoader implements QuiverLoader {
+class BuiltLoader implements QuiverLoader {
   /** Font byte cache: hash → in-flight or resolved Promise. */
   private readonly fontCache: Map<string, Promise<Uint8Array>> = new Map();
 
   constructor(
-    private readonly transport: PackedTransport,
+    private readonly transport: BuiltTransport,
     /** Index map from "name@version" to its manifest entry. */
-    private readonly index: Map<string, PackedQuillEntry>,
+    private readonly index: Map<string, BuiltQuillEntry>,
   ) {}
 
   async loadTree(name: string, version: string): Promise<Map<string, Uint8Array>> {
@@ -96,7 +96,7 @@ class PackedLoader implements QuiverLoader {
     if (!entry) {
       throw new QuiverError(
         "transport_error",
-        `Quill "${name}@${version}" not found in packed quiver manifest`,
+        `Quill "${name}@${version}" not found in built-quiver manifest`,
         { version, ref: `${name}@${version}` },
       );
     }
@@ -179,7 +179,7 @@ function parsePointer(raw: string): string {
   return obj["manifest"] as string;
 }
 
-function parseManifest(raw: string): PackedManifest {
+function parseManifest(raw: string): BuiltManifest {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -218,7 +218,7 @@ function parseManifest(raw: string): PackedManifest {
     );
   }
 
-  const quills: PackedQuillEntry[] = [];
+  const quills: BuiltQuillEntry[] = [];
 
   for (let i = 0; i < (obj["quills"] as unknown[]).length; i++) {
     const entry = (obj["quills"] as unknown[])[i];
@@ -309,15 +309,15 @@ function parseManifest(raw: string): PackedManifest {
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 /**
- * Load a Packed Quiver via the given transport.
+ * Load a build-output quiver via the given transport.
  *
  * 1. Fetches Quiver.json (pointer) and parses it.
  * 2. Fetches the manifest file it points to and validates it.
  * 3. Builds a catalog from manifest entries (versions sorted descending).
- * 4. Returns a Quiver instance backed by a PackedLoader.
+ * 4. Returns a Quiver instance backed by a BuiltLoader.
  */
-export async function loadPackedQuiver(
-  transport: PackedTransport,
+export async function loadBuiltQuiver(
+  transport: BuiltTransport,
 ): Promise<Quiver> {
   // 1. Fetch and parse pointer.
   let pointerBytes: Uint8Array;
@@ -356,7 +356,7 @@ export async function loadPackedQuiver(
   // 3. Build catalog: name → versions sorted descending.
   //    Also build index map: "name@version" → entry (with duplicate detection).
   const catalogRaw = new Map<string, string[]>();
-  const index = new Map<string, PackedQuillEntry>();
+  const index = new Map<string, BuiltQuillEntry>();
 
   for (const entry of manifest.quills) {
     const key = `${entry.name}@${entry.version}`;
@@ -378,7 +378,7 @@ export async function loadPackedQuiver(
   }
 
   // 4. Build loader.
-  const loader = new PackedLoader(transport, index);
+  const loader = new BuiltLoader(transport, index);
 
   // 5. Return Quiver via internal factory.
   return Quiver._fromLoader(manifest.name, catalogRaw, loader);
