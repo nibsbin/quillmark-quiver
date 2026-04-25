@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { buildQuiver } from "../build.js";
 import { unpackFiles } from "../bundle.js";
-import { Quiver } from "../quiver.js";
+import { Quiver } from "../node.js";
 import { QuiverError } from "../errors.js";
 
 // Absolute path to the committed fixture

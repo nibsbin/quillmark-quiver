@@ -3,11 +3,14 @@
  *
  * Polymorphism via composition: internally stores a pluggable loader
  * (either source-backed or build-output-backed).
+ *
+ * This module is browser-safe: only `fromBuilt` and the instance API live
+ * here. Node-only factories (`fromDir`, `fromPackage`, `build`) are installed
+ * on this class by `./node.js`, which is the consumer's explicit opt-in to
+ * the Node API surface.
  */
 
 import { QuiverError } from "./errors.js";
-import { assertNode } from "./assert-node.js";
-import type { BuildOptions } from "./build.js";
 import type { QuillmarkLike, QuillLike } from "./engine-types.js";
 import { parseQuillRef } from "./ref.js";
 import { matchesSemverSelector, chooseHighestVersion } from "./semver.js";
@@ -41,9 +44,10 @@ export class Quiver {
   readonly #treeCache: Map<string, Promise<Map<string, Uint8Array>>> = new Map();
 
   /**
-   * Private constructor — use static factory methods.
-   * TS prevents external `new Quiver(...)` at compile time.
-   * Static methods inside can still call it.
+   * Private constructor — use static factory methods (`Quiver.fromBuilt`, or
+   * the Node-only `Quiver.fromDir` / `Quiver.fromPackage` installed by
+   * `@quillmark/quiver/node`). TS prevents external `new Quiver(...)` at
+   * compile time.
    */
   private constructor(
     name: string,
@@ -55,64 +59,17 @@ export class Quiver {
     this.#loader = loader;
   }
 
-  /** @internal Used by loadBuiltQuiver. Not part of the public API. */
+  /**
+   * @internal Construction escape hatch around the private constructor. Used
+   * by `loadBuiltQuiver` and by the Node entry (`./node.js`) when installing
+   * `fromDir` / `fromPackage`. Not part of the public API.
+   */
   static _fromLoader(
     name: string,
     catalog: Map<string, string[]>,
     loader: QuiverLoader,
   ): Quiver {
     return new Quiver(name, catalog, loader);
-  }
-
-  /**
-   * Node-only factory. Resolves an npm specifier against `node_modules` and
-   * loads the source layout at the package root.
-   *
-   * The resolved package must have `Quiver.yaml` at its root.
-   *
-   * Throws `transport_error` on resolution/I/O failure, `quiver_invalid`
-   * on schema violations.
-   */
-  static async fromPackage(specifier: string): Promise<Quiver> {
-    assertNode("Quiver.fromPackage");
-    const { createRequire } = await import("node:module");
-    const { dirname } = await import("node:path");
-    const req = createRequire(import.meta.url);
-    let yamlPath: string;
-    try {
-      yamlPath = req.resolve(`${specifier}/Quiver.yaml`);
-    } catch (err) {
-      throw new QuiverError(
-        "transport_error",
-        `Failed to resolve quiver package "${specifier}": ${(err as Error).message}`,
-        { cause: err },
-      );
-    }
-    return Quiver.fromDir(dirname(yamlPath));
-  }
-
-  /**
-   * Node-only factory. Reads a Source Quiver from a local directory containing
-   * `Quiver.yaml` and `quills/<name>/<version>/Quill.yaml` entries.
-   *
-   * Also accepts `import.meta.url`-style `file://` URLs as a convenience for
-   * tests; the URL's parent directory is used as the source root.
-   *
-   * Throws `quiver_invalid` on schema violations, `transport_error` on I/O failure.
-   */
-  static async fromDir(pathOrFileUrl: string): Promise<Quiver> {
-    assertNode("Quiver.fromDir");
-    let dir = pathOrFileUrl;
-    if (pathOrFileUrl.startsWith("file://")) {
-      const { fileURLToPath } = await import("node:url");
-      dir = fileURLToPath(new URL(".", pathOrFileUrl));
-    }
-    const { scanSourceQuiver, SourceLoader } = await import(
-      "./source-loader.js"
-    );
-    const { meta, catalog } = await scanSourceQuiver(dir);
-    const loader = new SourceLoader(dir);
-    return new Quiver(meta.name, catalog, loader);
   }
 
   /**
@@ -150,26 +107,6 @@ export class Quiver {
    */
   versionsOf(name: string): string[] {
     return [...(this.#catalog.get(name) ?? [])];
-  }
-
-  /**
-   * Node-only tooling. Reads the Source Quiver at sourceDir, validates it,
-   * and writes the runtime build artifact to outDir.
-   *
-   * Uses dynamic import of `./build.js` so that this module stays
-   * browser-safe at evaluation time.
-   *
-   * Throws `quiver_invalid` on source validation failures,
-   * `transport_error` on I/O failures.
-   */
-  static async build(
-    sourceDir: string,
-    outDir: string,
-    opts?: BuildOptions,
-  ): Promise<void> {
-    assertNode("Quiver.build");
-    const { buildQuiver } = await import("./build.js");
-    return buildQuiver(sourceDir, outDir, opts);
   }
 
   /**

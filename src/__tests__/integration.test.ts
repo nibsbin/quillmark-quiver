@@ -12,7 +12,7 @@ import { mkdir, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { Quiver } from "../quiver.js";
+import { Quiver } from "../node.js";
 import { QuiverError } from "../errors.js";
 import { makeMockEngine } from "./helpers/mock-engine.js";
 
