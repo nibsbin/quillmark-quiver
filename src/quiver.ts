@@ -26,12 +26,19 @@ export class Quiver {
   /**
    * Per-engine cache of materialized quills, keyed by canonical ref.
    * WeakMap so engines can be GC'd; Promise values so concurrent
-   * getQuill calls coalesce into a single load.
+   * getQuill calls coalesce into a single materialization.
    */
-  readonly #cache: WeakMap<
+  readonly #quillCache: WeakMap<
     QuillmarkLike,
     Map<string, Promise<QuillLike>>
   > = new WeakMap();
+
+  /**
+   * Engine-independent cache of fetched trees, keyed by canonical ref.
+   * Populated by `warm()` and on first `getQuill` for a ref. Promise
+   * values so concurrent fetches coalesce.
+   */
+  readonly #treeCache: Map<string, Promise<Map<string, Uint8Array>>> = new Map();
 
   /**
    * Private constructor — use static factory methods.
@@ -225,8 +232,9 @@ export class Quiver {
    *
    * Selector refs (e.g. `"memo"`, `"memo@1"`) are resolved to canonical
    * form first. Materializes via `engine.quill(tree)` on first call;
-   * caches per (engine, canonical-ref). Concurrent calls for the same ref
-   * coalesce into a single load.
+   * caches per (engine, canonical-ref). Reuses a tree cached by `warm()`
+   * (or a previous `getQuill`) so the network fetch isn't paid twice.
+   * Concurrent calls for the same ref coalesce into a single load.
    *
    * Throws:
    *   - `invalid_ref` if ref is malformed
@@ -241,10 +249,10 @@ export class Quiver {
     const canonicalRef = await this.resolve(ref);
     const engine = opts.engine;
 
-    let perEngine = this.#cache.get(engine);
+    let perEngine = this.#quillCache.get(engine);
     if (perEngine === undefined) {
       perEngine = new Map();
-      this.#cache.set(engine, perEngine);
+      this.#quillCache.set(engine, perEngine);
     }
 
     let entry = perEngine.get(canonicalRef);
@@ -258,29 +266,48 @@ export class Quiver {
     return entry;
   }
 
-  /** Internal: load tree + invoke engine.quill. Errors propagate unchanged. */
+  /** Internal: load tree (cached) + invoke engine.quill. Errors propagate. */
   async #materializeQuill(
     canonicalRef: string,
     engine: QuillmarkLike,
   ): Promise<QuillLike> {
-    const at = canonicalRef.indexOf("@");
-    const name = canonicalRef.slice(0, at);
-    const version = canonicalRef.slice(at + 1);
-    const tree = await this.loadTree(name, version);
+    const tree = await this.#getTreeCached(canonicalRef);
     return engine.quill(tree);
   }
 
   /**
-   * Warms every quill version in this quiver against `engine`. Fail-fast.
-   *
-   * Calls `getQuill` for every (name, version) in parallel. Already-cached
-   * refs resolve instantly (idempotent). Rejects on the first failure.
+   * Internal: tree cache reader. On miss, fetches via `loadTree` and stores
+   * the in-flight Promise. On rejection, evicts so a retry can succeed.
    */
-  async warm(opts: { engine: QuillmarkLike }): Promise<void> {
-    const promises: Promise<QuillLike>[] = [];
+  async #getTreeCached(
+    canonicalRef: string,
+  ): Promise<Map<string, Uint8Array>> {
+    let entry = this.#treeCache.get(canonicalRef);
+    if (entry === undefined) {
+      const at = canonicalRef.indexOf("@");
+      const name = canonicalRef.slice(0, at);
+      const version = canonicalRef.slice(at + 1);
+      entry = this.loadTree(name, version).catch((err) => {
+        this.#treeCache.delete(canonicalRef);
+        throw err;
+      });
+      this.#treeCache.set(canonicalRef, entry);
+    }
+    return entry;
+  }
+
+  /**
+   * Prefetches the tree for every quill version in this quiver. Fail-fast.
+   *
+   * Network-bound only — does not materialize Quill instances and does not
+   * require an engine. Subsequent `getQuill` calls reuse the cached trees,
+   * skipping the fetch. Rejects on the first fetch failure.
+   */
+  async warm(): Promise<void> {
+    const promises: Promise<unknown>[] = [];
     for (const name of this.quillNames()) {
       for (const version of this.versionsOf(name)) {
-        promises.push(this.getQuill(`${name}@${version}`, opts));
+        promises.push(this.#getTreeCached(`${name}@${version}`));
       }
     }
     await Promise.all(promises);

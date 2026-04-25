@@ -118,19 +118,20 @@ Canonical version format:
 Canonicalization:
 
 - resolve selector to canonical ref once per call to `getQuill`
-- key internal caches by (engine, canonical-ref)
+- key the tree cache by canonical ref; key the quill cache by (engine, canonical-ref)
 
 ### 6) Warm/Prefetch Is Purely a Quiver Concern
 
-`warm()` remains a quiver-layer optimization:
+`warm()` is the network prefetch step. It fetches every quill's tree and
+populates the per-quiver tree cache. It does **not** materialize Quill
+instances and does **not** require an engine — `engine.quill(tree)` is
+microseconds and runs lazily inside `getQuill`. A subsequent `getQuill`
+reuses the cached tree, so the network fetch isn't paid twice.
 
 - `warm()` warms all by default in V1
-- `resolve()` must work even if nothing is warmed
-
-Warm means "load/prepare quills and materialize render-ready instances",
-not "register in engine". There is no engine registration step anymore.
-Warm semantics are identical for source-loaded and built-output-loaded
-quivers; the loader hides the difference.
+- `resolve()` works whether or not anything is warmed
+- Warm semantics are identical for source-loaded and built-output-loaded
+  quivers; the loader hides the difference.
 
 ### 7) Engine Boundary: New Canonical Contract (Node / JS–WASM only)
 
@@ -386,8 +387,9 @@ class Quiver {
   // engine.quill(tree), cached per (engine, canonical-ref)).
   getQuill(ref: string, opts: { engine: Quillmark }): Promise<Quill>;
 
-  // Warms every ref in this quiver against `engine`. Fail-fast.
-  warm(opts: { engine: Quillmark }): Promise<void>;
+  // Prefetches every quill tree (network-only; engine not required).
+  // Subsequent getQuill calls reuse the cached tree. Fail-fast.
+  warm(): Promise<void>;
 }
 
 class QuiverError extends Error {

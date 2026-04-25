@@ -172,52 +172,108 @@ describe("Quiver.getQuill", () => {
 
 // ─── warm ─────────────────────────────────────────────────────────────────────
 
+/** Builds a Quiver wired to a counting loader. Lets us assert tree-fetch counts. */
+function makeCountingQuiver(opts: {
+  name: string;
+  catalog: Map<string, string[]>;
+  failOnNthCall?: number;
+}): { quiver: Quiver; loaderCalls: () => number } {
+  let calls = 0;
+  const loader = {
+    async loadTree(_name: string, _version: string) {
+      calls++;
+      if (opts.failOnNthCall !== undefined && calls === opts.failOnNthCall) {
+        throw new Error("loader failure");
+      }
+      return new Map<string, Uint8Array>([
+        ["Quill.yaml", new TextEncoder().encode("name: stub\n")],
+      ]);
+    },
+  };
+  const quiver = Quiver._fromLoader(opts.name, opts.catalog, loader);
+  return { quiver, loaderCalls: () => calls };
+}
+
 describe("Quiver.warm", () => {
-  it("18. after warm(), engine.quill call count == total versions", async () => {
+  it("18. warm() does not require an engine and does not materialize quills", async () => {
     const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
-    const { calls, engine } = makeMockEngine();
+    const { calls } = makeMockEngine();
 
-    await quiver.warm({ engine });
+    await quiver.warm();
 
-    // Sample fixture: memo@1.0.0, memo@1.1.0, resume@2.0.0 = 3
-    expect(calls).toHaveLength(3);
-
-    const memo100 = await quiver.getQuill("memo@1.0.0", { engine });
-    const memo110 = await quiver.getQuill("memo@1.1.0", { engine });
-    const resume200 = await quiver.getQuill("resume@2.0.0", { engine });
-
-    expect(calls).toHaveLength(3); // still 3 — no new calls
-
-    expect(await quiver.getQuill("memo@1.0.0", { engine })).toBe(memo100);
-    expect(await quiver.getQuill("memo@1.1.0", { engine })).toBe(memo110);
-    expect(await quiver.getQuill("resume@2.0.0", { engine })).toBe(resume200);
+    // No engine was passed; no engine.quill calls happen anywhere.
+    expect(calls).toHaveLength(0);
   });
 
-  it("19. warm() is idempotent — second warm() makes no additional engine.quill calls", async () => {
-    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
-    const { calls, engine } = makeMockEngine();
+  it("19. warm() prefetches every (name, version); loader called once per ref", async () => {
+    const { quiver, loaderCalls } = makeCountingQuiver({
+      name: "test",
+      catalog: new Map([
+        ["memo", ["1.0.0", "1.1.0"]],
+        ["resume", ["2.0.0"]],
+      ]),
+    });
 
-    await quiver.warm({ engine });
-    await quiver.warm({ engine });
-
-    expect(calls).toHaveLength(3);
+    await quiver.warm();
+    expect(loaderCalls()).toBe(3);
   });
 
-  it("20. if engine.quill throws for one ref, warm() rejects (fail-fast)", async () => {
-    const quiver = await Quiver.fromDir(SAMPLE_FIXTURE);
-    let callCount = 0;
-    const failingEngine: QuillmarkLike = {
-      quill(_tree: Map<string, Uint8Array>): QuillLike {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("warm failure");
-        }
-        return { render: () => ({}) };
+  it("20. getQuill after warm() reuses cached tree; no second fetch", async () => {
+    const { quiver, loaderCalls } = makeCountingQuiver({
+      name: "test",
+      catalog: new Map([["memo", ["1.0.0"]]]),
+    });
+    const { calls, engine } = makeMockEngine();
+
+    await quiver.warm();
+    expect(loaderCalls()).toBe(1);
+
+    await quiver.getQuill("memo@1.0.0", { engine });
+    expect(loaderCalls()).toBe(1); // still 1 — tree cache hit
+    expect(calls).toHaveLength(1); // engine.quill ran exactly once
+  });
+
+  it("21. warm() is idempotent — second warm() does not refetch", async () => {
+    const { quiver, loaderCalls } = makeCountingQuiver({
+      name: "test",
+      catalog: new Map([["memo", ["1.0.0"]]]),
+    });
+
+    await quiver.warm();
+    await quiver.warm();
+
+    expect(loaderCalls()).toBe(1);
+  });
+
+  it("22. if loader throws for one ref, warm() rejects (fail-fast)", async () => {
+    const { quiver } = makeCountingQuiver({
+      name: "test",
+      catalog: new Map([["memo", ["1.0.0", "1.1.0"]]]),
+      failOnNthCall: 1,
+    });
+
+    await expect(quiver.warm()).rejects.toThrow("loader failure");
+  });
+
+  it("23. after a failed warm() ref, retry can succeed (in-flight entry cleared)", async () => {
+    let calls = 0;
+    const loader = {
+      async loadTree(_name: string, _version: string) {
+        calls++;
+        if (calls === 1) throw new Error("transient");
+        return new Map<string, Uint8Array>([
+          ["Quill.yaml", new TextEncoder().encode("name: stub\n")],
+        ]);
       },
     };
-
-    await expect(quiver.warm({ engine: failingEngine })).rejects.toThrow(
-      "warm failure",
+    const quiver = Quiver._fromLoader(
+      "test",
+      new Map([["memo", ["1.0.0"]]]),
+      loader,
     );
+
+    await expect(quiver.warm()).rejects.toThrow("transient");
+    await expect(quiver.warm()).resolves.toBeUndefined();
+    expect(calls).toBe(2);
   });
 });

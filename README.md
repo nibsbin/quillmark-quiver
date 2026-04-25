@@ -109,11 +109,16 @@ await Quiver.build("./my-quiver", "./dist/my-quiver");
 const quiver = await Quiver.fromBuilt("https://cdn.example.com/quivers/my-quiver/");
 ```
 
-## Warm (prefetch all quills)
+## Warm (prefetch all quill trees)
 
 ```ts
-await quiver.warm({ engine });
+await quiver.warm();
 ```
+
+`warm()` is network-only: it fetches every quill's tree and caches them.
+It does not require an engine and does not materialize Quill instances —
+that happens lazily on the first `getQuill` call, which is microseconds.
+A subsequent `getQuill` reuses the cached tree, skipping the fetch.
 
 ## Error handling
 
