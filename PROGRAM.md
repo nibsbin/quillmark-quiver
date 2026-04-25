@@ -150,16 +150,31 @@ Upstream behavior note:
 
 ### 9) Distribution Strategy
 
-V1 supports:
+**Source-first distribution.** The recommended published artifact is the **Source
+Quiver** itself (npm package or git repo). Consumers select how to load it:
 
-- npm distribution for Source Quiver projects
-- git/folder-copy consumption of Source Quivers
-- `pack()` output for Packed runtime distribution
+- **Node consumers** load the Source Quiver directly via `Quiver.fromSourceDir`,
+  resolving the package from `node_modules`.
+- **Browser consumers** run `Quiver.pack(...)` as a build step and serve the
+  packed output over HTTP via `Quiver.fromHttp`.
 
-Clarification:
+Rationale:
 
-- npm/git are developer distribution channels
-- packed artifacts are runtime delivery artifacts
+- Author release pipeline is `npm publish` (or `git tag`) — no second artifact,
+  no CDN, no hash bookkeeping outside the package.
+- Deployment topology is the consumer's concern, not the author's.
+- The existing API already covers this: `fromSourceDir` for Node, `pack()` +
+  `fromHttp` for browser. No new surface needed.
+
+**Pre-packed distribution is supported but not the default.** Authors who need
+to ship a runtime-ready artifact directly (e.g. their consumers cannot run a
+Node build step) may publish `Quiver.pack(...)` output for loading via
+`fromPackedDir` or `fromHttp`. Treated as the exception, not the recommended
+path.
+
+Validation responsibility shifts left: authors should run `Quiver.fromSourceDir`
+and `Quiver.pack` in CI so `quiver_invalid` errors surface on publish, not on
+the consumer's build.
 
 ---
 

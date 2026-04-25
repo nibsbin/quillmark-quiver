@@ -8,49 +8,85 @@ Quiver registry and packaging for Quillmark — load, compose, and pack collecti
 npm install @quillmark/quiver @quillmark/wasm
 ```
 
-## Quick start
+## Distribution model
+
+A Quiver is published as its **Source** shape (the human-authored layout in the repo).
+Consumers decide how to load it:
+
+- **Node consumers** load the Source Quiver directly with `Quiver.fromSourceDir`.
+- **Browser consumers** run `Quiver.pack(...)` as a build step and serve the
+  packed output over HTTP with `Quiver.fromHttp`.
+
+This keeps the author flow to a single command (`npm publish` or `git tag`) and
+puts the deployment-topology decision where it belongs: with the consumer.
+
+## Authoring a quiver
+
+Lay out a Source Quiver per the spec, then publish to npm (or push a git tag):
+
+```
+my-quiver/
+  Quiver.yaml
+  quills/
+    <name>/<x.y.z>/
+      Quill.yaml
+      ...
+  package.json
+```
+
+Recommended CI: load with `Quiver.fromSourceDir` and run `Quiver.pack` in a
+smoke test so validation errors surface on publish, not on the consumer's build.
+
+## Consuming a quiver (Node)
 
 ```ts
 import { Quillmark, Document } from "@quillmark/wasm";
 import { Quiver, QuiverRegistry } from "@quillmark/quiver/node";
 
-// 1. Load a source quiver from disk (Node.js only)
-const quiver = await Quiver.fromSourceDir("./my-quiver");
+// Resolve the published source quiver from node_modules.
+const quiverPath = require.resolve("@org/my-quiver/Quiver.yaml");
+const quiver = await Quiver.fromSourceDir(new URL(".", `file://${quiverPath}`).pathname);
 
-// 2. Build a registry with one or more quivers
 const engine = new Quillmark();
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 
-// 3. Resolve a ref, obtain a render-ready quill, and render
 const doc = Document.fromMarkdown(markdownString);
 const canonicalRef = await registry.resolve(doc.quillRef);
 const quill = await registry.getQuill(canonicalRef);
 const result = quill.render(doc, { format: "pdf" });
 ```
 
-## HTTP (browser / CDN)
+## Consuming a quiver (browser)
+
+Browsers cannot read the Source Quiver layout directly, so pack at build time
+and serve the output as static files:
 
 ```ts
+// build script (Node)
+import { Quiver } from "@quillmark/quiver/node";
+
+await Quiver.pack("./node_modules/@org/my-quiver", "./public/quivers/my-quiver");
+```
+
+```ts
+// browser runtime
 import { Quiver, QuiverRegistry } from "@quillmark/quiver";
 
-const quiver = await Quiver.fromHttp("https://cdn.example.com/my-quiver");
+const quiver = await Quiver.fromHttp("/quivers/my-quiver");
 const registry = new QuiverRegistry({ engine, quivers: [quiver] });
 ```
 
-## Packed directory (Node.js)
+## Advanced: pre-packed distribution
 
-```ts
-import { Quiver } from "@quillmark/quiver/node";
-
-const quiver = await Quiver.fromPackedDir("./dist/my-quiver");
-```
-
-## Pack a source quiver
+If you need to ship a runtime artifact directly (e.g. consumers cannot run a
+Node build step), `Quiver.pack` produces a content-addressed Packed Quiver
+that can be loaded with `Quiver.fromPackedDir` or `Quiver.fromHttp`:
 
 ```ts
 import { Quiver } from "@quillmark/quiver/node";
 
 await Quiver.pack("./my-quiver", "./dist/my-quiver");
+const quiver = await Quiver.fromPackedDir("./dist/my-quiver");
 ```
 
 ## Warm (prefetch all quills)
