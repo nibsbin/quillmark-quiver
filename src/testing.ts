@@ -5,11 +5,7 @@
  *
  *   import { Quillmark } from "@quillmark/wasm";
  *   import { runQuiverTests } from "@quillmark/quiver/testing";
- *   runQuiverTests(import.meta.url, () => Quillmark.load());
- *
- * The engine factory is called in beforeAll, so no top-level await is needed.
- * If you already have an initialized engine instance you can pass it directly:
- *
+ *   const engine = await Quillmark.load();
  *   runQuiverTests(import.meta.url, engine);
  *
  * Requires vitest in your devDependencies.
@@ -86,10 +82,6 @@ function discoverQuills(
   return results;
 }
 
-type EngineArg =
-  | QuillmarkLike
-  | (() => QuillmarkLike | Promise<QuillmarkLike>);
-
 /**
  * Registers a Vitest describe block that validates every quill version in the
  * quiver at `sourceDirOrMetaUrl` against the provided Quillmark engine.
@@ -107,7 +99,7 @@ type EngineArg =
  */
 export function runQuiverTests(
   sourceDirOrMetaUrl: string,
-  engine: EngineArg,
+  engine: QuillmarkLike,
 ): void {
   const sourceDir = resolveSourceDir(sourceDirOrMetaUrl);
 
@@ -121,13 +113,8 @@ export function runQuiverTests(
     let registry!: QuiverRegistry;
 
     beforeAll(async () => {
-      const resolvedEngine =
-        typeof engine === "function" ? await engine() : engine;
       const quiver = await Quiver.fromSourceDir(sourceDir);
-      registry = new QuiverRegistry({
-        engine: resolvedEngine,
-        quivers: [quiver],
-      });
+      registry = new QuiverRegistry({ engine, quivers: [quiver] });
     });
 
     it("has at least one quill", () => {
