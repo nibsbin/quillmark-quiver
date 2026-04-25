@@ -7,7 +7,6 @@ const allCodes: QuiverErrorCode[] = [
   "quill_not_found",
   "quiver_invalid",
   "transport_error",
-  "quiver_collision",
 ];
 
 describe("QuiverError", () => {
@@ -53,7 +52,7 @@ describe("QuiverError", () => {
   });
 
   it("preserves payload fields: quiverName", () => {
-    const err = new QuiverError("quiver_collision", "collision", { quiverName: "my-quiver" });
+    const err = new QuiverError("quiver_invalid", "bad quiver", { quiverName: "my-quiver" });
     expect(err.quiverName).toBe("my-quiver");
     expect(err.ref).toBeUndefined();
     expect(err.version).toBeUndefined();

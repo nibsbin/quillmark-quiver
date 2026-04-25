@@ -11,7 +11,7 @@
  * test doubles) satisfy the contract structurally.
  *
  * These types are INTERNAL — never re-exported from index.ts. They exist so
- * registry.ts never imports from @quillmark/wasm directly and so test doubles
+ * quiver.ts never imports from @quillmark/wasm directly and so test doubles
  * can satisfy the contract without pulling the real WASM module.
  *
  * Call-site note: Quiver never invokes `render` or `open` itself; consumers do

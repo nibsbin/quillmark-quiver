@@ -83,27 +83,15 @@ Unknown fields in `Quiver.yaml` are a **validation error** (`quiver_invalid`). S
 - "Transport" is not a first-class concept; HTTP fetching is an internal
   detail of `fromBuilt`
 
-### 4) Multi-Quiver Composition with Deterministic Precedence
+### 4) Single-Quiver Scope (V1)
 
-`QuiverRegistry` accepts multiple quivers with explicit order.
+V1 has no multi-quiver composition layer. Each `Quiver` instance is
+independent: consumers load one quiver and call `resolve` / `getQuill` /
+`warm` directly on it. There is no `QuiverRegistry`.
 
-This registry/composition layer lives entirely in `@quillmark/quiver`; it is not a Quillmark engine feature.
-
-Precedence rule:
-
-- **Precedence is a hard filter**
-- Scan quivers in order
-- First quiver with any matching candidate wins
-- Choose highest matching version **within that quiver**
-
-Applies to:
-
-- unqualified refs (e.g. `usaf_memo`)
-- selector refs (e.g. `usaf_memo@1.2`)
-
-No global highest-across-all-quivers behavior.
-
-**Identity collision:** duplicate `Quiver.yaml.name` across composed quivers is an error in V1.
+If composition becomes a real use case, the additive path is a thin
+`Quiver.compose([a, b, ...])` factory that returns a quiver-shaped
+composite — it is intentionally out of scope for V1.
 
 ### 5) Semver Selector Rules Are Strict and Small
 
@@ -129,20 +117,35 @@ Canonical version format:
 
 Canonicalization:
 
-- resolve selector to canonical ref once per manifest snapshot
-- key internal caches by canonical ref
+- resolve selector to canonical ref once per call to `getQuill`
+- key the tree cache by canonical ref; key the quill cache by (engine, canonical-ref)
 
 ### 6) Warm/Prefetch Is Purely a Quiver Concern
 
-`warm()` remains a quiver-layer optimization:
+`warm()` is the network prefetch step. It fetches every quill's tree and
+populates the per-quiver tree cache. It does **not** materialize Quill
+instances and does **not** require an engine — `engine.quill(tree)` is
+microseconds and runs lazily inside `getQuill`. A subsequent `getQuill`
+reuses the cached tree, so the network fetch isn't paid twice.
 
-- `warm()` warms all by default in V1
-- `resolve()` must work even if nothing is warmed
+Tree cache lifecycle:
 
-Warm means "load/prepare quills and materialize render-ready instances",
-not "register in engine". There is no engine registration step anymore.
-Warm semantics are identical for source-loaded and built-output-loaded
-quivers; the loader hides the difference.
+- `warm()` populates the tree cache.
+- First `getQuill(ref, { engine })` reads the tree, materializes the
+  Quill via `engine.quill(tree)`, then evicts the tree so its bytes can
+  be GC'd. The materialized Quill is what's kept (per engine).
+- If `engine.quill` throws, the tree is retained so a retry skips the
+  network.
+- Repeated `getQuill` on the same engine hits the per-engine quill cache
+  — no tree access at all.
+- A subsequent `getQuill` for a different engine refetches the tree
+  (single-engine apps never pay this cost).
+
+Other invariants:
+
+- `resolve()` works whether or not anything is warmed.
+- Warm semantics are identical for source-loaded and built-output-loaded
+  quivers; the loader hides the difference.
 
 ### 7) Engine Boundary: New Canonical Contract (Node / JS–WASM only)
 
@@ -164,7 +167,7 @@ For advanced dynamic-asset behavior, defer to Quillmark’s JS/WASM docs; the de
 ### 8) Markdown and Ref Parsing Boundary
 
 - Markdown parsing does not require a quill registry: `Document.fromMarkdown(markdown)`
-- Quiver owns ref parsing and selector resolution for its own API (`resolve`, `warm`, validation)
+- Quiver owns ref parsing and selector resolution for its own API (`resolve`, `getQuill`, `warm`, validation)
 - QUILL field is informational at render time; Quiver routes to the intended quill explicitly without mutating the parsed document in V1
 
 Upstream behavior note:
@@ -254,13 +257,12 @@ V1 code catalog (closed set):
 | Code | Fires when |
 |---|---|
 | `invalid_ref` | Malformed ref string at `resolve()`/`warm()` boundary (fails `parseQuillRef`) |
-| `quill_not_found` | Selector did not match any quill in any composed quiver |
+| `quill_not_found` | Selector did not match any quill in the quiver |
 | `quiver_invalid` | `Quiver.yaml` or hashed manifest malformed, unknown field, non-canonical version on disk, or font/bundle hash mismatch |
 | `transport_error` | I/O failure: missing path, HTTP non-2xx, network error, permission error. Wraps underlying cause. |
-| `quiver_collision` | Two composed quivers share `Quiver.yaml.name` at registry construction |
 
 Notes:
-- `quill_not_found` is selector-resolution failure after quiver composition and precedence.
+- `quill_not_found` is selector-resolution failure within a quiver's catalog.
 - `transport_error` is artifact access failure (filesystem/HTTP/network/permissions), including missing packed files and HTTP 404.
 - Legacy categories such as `manifest_invalid`, `quill_load_failed`, and `backend_not_found` are folded into `quiver_invalid` or `transport_error` in V1.
 
@@ -386,43 +388,38 @@ class Quiver {
 
   readonly name: string; // from Quiver.yaml
 
-  // Read-only introspection and lazy tree access used by QuiverRegistry
-  // internally; also available for external debugging and tooling.
+  // Read-only introspection and lazy tree access; also used internally by
+  // resolve/getQuill/warm.
   quillNames(): string[];                                              // sorted lex
   versionsOf(name: string): string[];                                  // sorted desc
   loadTree(name: string, version: string): Promise<Map<string, Uint8Array>>;
-}
-```
-
-```ts
-class QuiverRegistry {
-  constructor(args: { engine: Quillmark; quivers: Quiver[] });
 
   // Selector ref -> canonical ref. Throws invalid_ref / quill_not_found.
   resolve(ref: string): Promise<string>;
 
-  // Canonical ref -> render-ready quill handle (materialized via engine.quill(tree), cached in-process).
-  getQuill(canonicalRef: string): Promise<Quill>;
+  // Selector or canonical ref -> render-ready quill handle (materialized via
+  // engine.quill(tree), cached per (engine, canonical-ref)).
+  getQuill(ref: string, opts: { engine: Quillmark }): Promise<Quill>;
 
-  // Warms every ref in every composed quiver. Fail-fast. Zero params in V1.
+  // Prefetches every quill tree (network-only; engine not required).
+  // Subsequent getQuill calls reuse the cached tree. Fail-fast.
   warm(): Promise<void>;
 }
 
 class QuiverError extends Error {
-  code: "invalid_ref" | "quill_not_found" | "quiver_invalid" | "transport_error" | "quiver_collision";
+  code: "invalid_ref" | "quill_not_found" | "quiver_invalid" | "transport_error";
   // plus contextual payload fields
 }
 ```
 
-**No render wrapper.** Callers invoke `quill.render(doc, opts?)` (and `quill.open(doc)` when needed) after `resolve()` + `getQuill()`. Quiver never mirrors Quillmark render APIs.
+**No render wrapper.** Callers invoke `quill.render(doc, opts?)` (and `quill.open(doc)` when needed) after `getQuill()`. Quiver never mirrors Quillmark render APIs.
 
 **Internal (not exported):** `QuiverManifest` (runtime shape), `parseQuillRef`, in-flight coalescing state, source-vs-built layout detection.
 
 Hot-path flow:
 ```ts
 const doc = Document.fromMarkdown(md);
-const canonicalRef = await registry.resolve(doc.quillRef);
-const quill = await registry.getQuill(canonicalRef);
+const quill = await quiver.getQuill(doc.quillRef, { engine });
 const result = quill.render(doc, { format: "pdf" });
 ```
 
@@ -433,8 +430,8 @@ const result = quill.render(doc, { format: "pdf" });
 **Entrypoints:**
 - `@quillmark/quiver` (main, browser-safe): `Quiver` class with only
   `fromBuilt` functional (Node-only loaders/builder throw
-  `transport_error` if reached in browser), `QuiverRegistry`,
-  `QuiverError`, `QuillmarkLike`, `QuillLike`, shared types.
+  `transport_error` if reached in browser), `QuiverError`,
+  `QuillmarkLike`, `QuillLike`, shared types.
 - `@quillmark/quiver/node`: adds `Quiver.fromPackage`, `Quiver.fromDir`,
   `Quiver.build` behaviors. Single `Quiver` class — Node-only factories
   fail fast outside Node.
@@ -461,7 +458,7 @@ const result = quill.render(doc, { format: "pdf" });
 - inter-quiver dependency graph in `Quiver.yaml`
 - marketplace/discovery service
 - advanced warm strategies beyond API-compatible hooks
-- multi-quiver name-collision soft handling (V1 errors on duplicate `Quiver.yaml.name`)
+- multi-quiver composition (single quiver per consumer in V1)
 
 ---
 
@@ -472,11 +469,11 @@ All V1 planner questions resolved; implementation plan can proceed against the s
 1. ~~Final `Quiver` interface shape and transport factoring style~~ → Single `Quiver` class, three loaders (`fromPackage`, `fromDir`, `fromBuilt`) + one builder (`build`). Each loader names what it loads; no auto-detection.
 2. ~~Final `Quiver.yaml` schema and unknown-field policy~~ → See §2: alphanumeric `name` and optional tooling-only `description`. Unknown fields are `quiver_invalid`.
 3. ~~Canonical ref grammar and parser API contract~~ → Internal `parseQuillRef`, not exported. Selector syntax per §5. Throws `invalid_ref`.
-4. ~~Exact warning policy for shadowed refs across quivers~~ → No warnings in V1. Precedence is a hard filter (§4); duplicate quiver names error as `quiver_collision`.
+4. ~~Exact warning policy for shadowed refs across quivers~~ → N/A in V1: no multi-quiver composition layer; each `Quiver` instance is independent (§4).
 5. ~~Validation API shape consolidation~~ → No separate validation API. Validation errors surface as `QuiverError('quiver_invalid')` during load or `build()`.
 6. ~~Build output directory structure~~ → See "Runtime Artifact Format (normative)".
 7. ~~Node/browser entrypoint split~~ → See "Package Structure": main + `/node` subpath, single `Quiver` class.
-8. ~~Final exported type names~~ → `Quiver`, `QuiverRegistry`, `QuiverError`. Hot-path entry is `QuiverRegistry.resolve(ref)` + `QuiverRegistry.getQuill(canonicalRef)`.
+8. ~~Final exported type names~~ → `Quiver`, `QuiverError`. Hot-path entry is `Quiver.getQuill(ref, { engine })`.
 
 ---
 
