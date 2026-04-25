@@ -266,13 +266,22 @@ export class Quiver {
     return entry;
   }
 
-  /** Internal: load tree (cached) + invoke engine.quill. Errors propagate. */
+  /**
+   * Internal: load tree (cached) + invoke engine.quill. Errors propagate.
+   *
+   * On success, evicts the tree from the cache so its bytes can be GC'd —
+   * the materialized Quill is the runtime artifact; the tree is dead weight
+   * once a Quill exists. On failure, the tree is retained so retries skip
+   * the network.
+   */
   async #materializeQuill(
     canonicalRef: string,
     engine: QuillmarkLike,
   ): Promise<QuillLike> {
     const tree = await this.#getTreeCached(canonicalRef);
-    return engine.quill(tree);
+    const quill = engine.quill(tree);
+    this.#treeCache.delete(canonicalRef);
+    return quill;
   }
 
   /**

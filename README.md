@@ -120,6 +120,10 @@ It does not require an engine and does not materialize Quill instances —
 that happens lazily on the first `getQuill` call, which is microseconds.
 A subsequent `getQuill` reuses the cached tree, skipping the fetch.
 
+Once a tree has been turned into a Quill, the cached tree is dropped so
+its bytes can be GC'd — the materialized Quill is the runtime artifact.
+Calling `warm()` again refills the tree cache.
+
 ## Error handling
 
 All errors are instances of `QuiverError` with a `code` field.

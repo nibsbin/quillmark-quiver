@@ -128,8 +128,22 @@ instances and does **not** require an engine — `engine.quill(tree)` is
 microseconds and runs lazily inside `getQuill`. A subsequent `getQuill`
 reuses the cached tree, so the network fetch isn't paid twice.
 
-- `warm()` warms all by default in V1
-- `resolve()` works whether or not anything is warmed
+Tree cache lifecycle:
+
+- `warm()` populates the tree cache.
+- First `getQuill(ref, { engine })` reads the tree, materializes the
+  Quill via `engine.quill(tree)`, then evicts the tree so its bytes can
+  be GC'd. The materialized Quill is what's kept (per engine).
+- If `engine.quill` throws, the tree is retained so a retry skips the
+  network.
+- Repeated `getQuill` on the same engine hits the per-engine quill cache
+  — no tree access at all.
+- A subsequent `getQuill` for a different engine refetches the tree
+  (single-engine apps never pay this cost).
+
+Other invariants:
+
+- `resolve()` works whether or not anything is warmed.
 - Warm semantics are identical for source-loaded and built-output-loaded
   quivers; the loader hides the difference.
 
