@@ -19,8 +19,8 @@ an npm package. Consumers decide how to consume it:
   output as static assets, loading it with `Quiver.fromBuilt`.
 
 Each loader names exactly what it loads: `fromPackage` and `fromDir` always
-read source layouts; `fromBuilt` always reads build output over HTTP/HTTPS.
-No auto-detection, no branching on artifact shape.
+read source layouts; `fromBuilt` always reads build output over an HTTP(S)
+or origin-relative URL. No auto-detection, no branching on artifact shape.
 
 This keeps the author flow to a single command (`npm publish` or `git tag`)
 and puts the deployment-topology decision where it belongs: with the
@@ -115,10 +115,12 @@ const quiver = await Quiver.fromBuilt("https://cdn.example.com/quivers/my-quiver
 await quiver.warm();
 ```
 
-`warm()` is network-only: it fetches every quill's tree and caches them.
-It does not require an engine and does not materialize Quill instances —
-that happens lazily on the first `getQuill` call, which is microseconds.
-A subsequent `getQuill` reuses the cached tree, skipping the fetch.
+`warm()` is I/O-only: it loads every quill's tree (over the network for
+`fromBuilt`, off the filesystem for `fromPackage`/`fromDir`) and caches
+them. It does not require an engine and does not materialize Quill
+instances — that happens lazily on the first `getQuill` call, which is
+microseconds. A subsequent `getQuill` reuses the cached tree, skipping
+the load.
 
 Once a tree has been turned into a Quill, the cached tree is dropped so
 its bytes can be GC'd — the materialized Quill is the runtime artifact.
