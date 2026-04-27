@@ -6,9 +6,15 @@ import { zipSync, unzipSync } from "fflate";
 
 /**
  * Fixed epoch mtime for deterministic zip output.
- * All entries get this timestamp so byte-identical inputs → byte-identical zips.
+ *
+ * fflate reads mtime via local-time getters (getFullYear/getMonth/...) and rejects
+ * years before 1980. Date.UTC(1980, 0, 1) becomes 1979-12-31 in any TZ west of UTC,
+ * which both crashes the encoder and (where it doesn't crash) produces TZ-dependent
+ * bytes. Using the local-time constructor anchors the components to 1980-01-01
+ * 00:00:00 in *every* timezone, so the DOS timestamp written into the zip header
+ * is always identical.
  */
-const ZIP_EPOCH = new Date(Date.UTC(1980, 0, 1));
+const ZIP_EPOCH = new Date(1980, 0, 1, 0, 0, 0, 0);
 
 /**
  * Pack a flat file map into a deterministic zip.

@@ -68,10 +68,10 @@ describe("packFiles determinism", () => {
     expect(Object.keys(output)).toHaveLength(0);
   });
 
-  it("produces UTC-epoch mtime bytes — no local-timezone offset in zip header", () => {
-    // The DOS mtime for 1980-01-01 00:00:00 UTC encodes as 0x0021 (date) 0x0000 (time).
-    // If local time were used instead, machines in non-UTC zones would produce
-    // different bytes. We verify the zip header directly.
+  it("produces TZ-independent mtime bytes in zip header", () => {
+    // fflate reads mtime via local-time getters. We anchor ZIP_EPOCH with the
+    // local-time Date constructor so its components are 1980-01-01 00:00:00 in
+    // every timezone. DOS encoding: time = 0x0000, date = 0x0021.
     const zipped = packFiles({ "file.txt": enc.encode("x") });
     // Locate the local file header signature (PK\x03\x04 = 0x04034b50 little-endian).
     const sig = [0x50, 0x4b, 0x03, 0x04];
