@@ -14,13 +14,16 @@ A Quiver has one authored shape: the **source layout** (`Quiver.yaml` at the
 package root, quills under `quills/<name>/<x.y.z>/`). Authors publish it as
 an npm package. Consumers decide how to consume it:
 
-- **Node consumers** load the source layout directly with `Quiver.fromPackage`.
+- **Node consumers** load the source layout directly with `Quiver.fromPackage`,
+  or load a packed (build-output) artifact from disk with
+  `Quiver.fromBuiltDir`.
 - **Browser consumers** run `Quiver.build(...)` as a build step and serve the
-  output as static assets, loading it with `Quiver.fromBuilt`.
+  output as static assets, loading it with `Quiver.fromBuiltUrl`.
 
-Each loader names exactly what it loads: `fromPackage` and `fromDir` always
-read source layouts; `fromBuilt` always reads build output over an HTTP(S)
-or origin-relative URL. No auto-detection, no branching on artifact shape.
+Each loader names exactly what it loads. Source: `fromPackage(specifier)`,
+`fromDir(path)`. Build output: `fromBuiltUrl(url)` (HTTP/HTTPS, browser-safe),
+`fromBuiltDir(path)` (filesystem, Node-only). No auto-detection, no branching
+on artifact shape.
 
 This keeps the author flow to a single command (`npm publish` or `git tag`)
 and puts the deployment-topology decision where it belongs: with the
@@ -91,22 +94,37 @@ await Quiver.build(
 // browser runtime
 import { Quiver } from "@quillmark/quiver";
 
-const quiver = await Quiver.fromBuilt("/quivers/my-quiver/");
+const quiver = await Quiver.fromBuiltUrl("/quivers/my-quiver/");
 const quill = await quiver.getQuill(doc.quillRef, { engine });
+```
+
+## Server-side runtime (Node, packed artifact on disk)
+
+For server-side rendering where the packed artifact ships in the deployment
+image, use `Quiver.fromBuiltDir` to read it from disk. This avoids the
+self-fetch / load-balancer round-trip that `fromBuiltUrl` would force on a
+self-hosted deployment, and lets the source quiver stay in
+`devDependencies`:
+
+```ts
+import { Quiver } from "@quillmark/quiver/node";
+
+// Packed at build time, e.g. into ./static/quills/my-quiver
+const quiver = await Quiver.fromBuiltDir("./static/quills/my-quiver");
 ```
 
 ## Advanced: pre-built distribution to a CDN
 
 If you need to ship the runtime artifact directly (e.g. consumers cannot run
 a Node build step), publish `Quiver.build` output to a CDN and have
-consumers point `fromBuilt` at the CDN URL:
+consumers point `fromBuiltUrl` at the CDN URL:
 
 ```ts
 import { Quiver } from "@quillmark/quiver/node";
 
 await Quiver.build("./my-quiver", "./dist/my-quiver");
 // upload ./dist/my-quiver to https://cdn.example.com/quivers/my-quiver/
-const quiver = await Quiver.fromBuilt("https://cdn.example.com/quivers/my-quiver/");
+const quiver = await Quiver.fromBuiltUrl("https://cdn.example.com/quivers/my-quiver/");
 ```
 
 ## Warm (prefetch all quill trees)
@@ -116,7 +134,8 @@ await quiver.warm();
 ```
 
 `warm()` is I/O-only: it loads every quill's tree (over the network for
-`fromBuilt`, off the filesystem for `fromPackage`/`fromDir`) and caches
+`fromBuiltUrl`, off the filesystem for `fromPackage` / `fromDir` /
+`fromBuiltDir`) and caches
 them. It does not require an engine and does not materialize Quill
 instances — that happens lazily on the first `getQuill` call, which is
 microseconds. A subsequent `getQuill` reuses the cached tree, skipping

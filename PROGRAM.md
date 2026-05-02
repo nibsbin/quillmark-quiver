@@ -37,24 +37,26 @@ Loaders are paired 1:1 with what they load:
 
 - `Quiver.fromPackage(specifier)` and `Quiver.fromDir(path)` load the
   **source** layout (Node only).
-- `Quiver.fromBuilt(url)` loads the **build output** over HTTP/HTTPS
+- `Quiver.fromBuiltUrl(url)` loads the **build output** over HTTP/HTTPS
   (browser-safe; works in Node too).
+- `Quiver.fromBuiltDir(path)` loads the **build output** from a local
+  directory (Node only).
 
 There is no auto-detection: each loader's name commits to what it expects.
 
 **Naming decisions:**
-- The verb is `build()`. Pairs with `fromBuilt()` (past participle = "the
-  built one"). Avoids collision with `npm pack`, JS bundler vocabulary,
-  and the internal "bundle zips" term.
+- The verb is `build()`. Pairs with the `fromBuilt*` family (past participle
+  = "the built one"). Avoids collision with `npm pack`, JS bundler
+  vocabulary, and the internal "bundle zips" term.
 - Loaders for source layouts are named by **where the source lives**
-  (`Package` / `Dir`). The loader for build output is named by **what it
-  loads** (`Built`), not by transport — `fromUrl` was rejected because it
-  hides the artifact type.
-- Build output is HTTP-served only. Loading a built artifact from local
-  disk is intentionally unsupported in V1; consumers either spin up a
-  local HTTP server or use `fromPackage`/`fromDir` against the source.
-  Adding `Quiver.fromBuiltDir(path)` later is purely additive if a real
-  use case appears.
+  (`Package` / `Dir`). Loaders for build output are named by **what** they
+  load (`Built`) plus **where** they load it from (`Url` / `Dir`). The
+  artifact type stays in the name; the transport disambiguates.
+- Server-side runtime (Node) reads packed artifacts from disk via
+  `fromBuiltDir`. This is the recommended shape when the runtime artifact
+  ships in the deployment image: source quivers stay as devDependencies,
+  there is no self-fetch over a load balancer / CDN, and serverless bundle
+  sizes are minimised.
 
 ### 2) `Quiver.yaml` Is Required in Source Quivers
 
@@ -72,16 +74,19 @@ Unknown fields in `Quiver.yaml` are a **validation error** (`quiver_invalid`). S
 ### 3) `QuillSource` Becomes Quiver-Centric
 
 - Re-express `QuillSource` concepts around Quivers
-- Three loaders, each with one input shape and one shape-of-thing-loaded:
+- Four loaders, each with one input shape and one shape-of-thing-loaded:
   - `Quiver.fromPackage(specifier)` — Node-only; resolves an npm specifier
     against `node_modules` and loads the source layout at the package root
   - `Quiver.fromDir(path)` — Node-only; loads source layout from a local
     directory. Also accepts `import.meta.url`-style `file://` URLs as a
     convenience for tests (the URL's parent directory is used)
-  - `Quiver.fromBuilt(url)` — browser-safe; loads build output from an
+  - `Quiver.fromBuiltUrl(url)` — browser-safe; loads build output from an
     `http(s)://` or origin-relative URL
+  - `Quiver.fromBuiltDir(path)` — Node-only; loads build output from a
+    local directory (the output of `Quiver.build`)
 - "Transport" is not a first-class concept; HTTP fetching is an internal
-  detail of `fromBuilt`
+  detail of `fromBuiltUrl`, filesystem access is an internal detail of
+  `fromBuiltDir`
 
 ### 4) Single-Quiver Scope (V1)
 
@@ -191,8 +196,17 @@ choose how to consume it:
   // build step (Node)
   await Quiver.build("./node_modules/@org/my-quiver", "./public/quivers/my-quiver");
   // browser runtime
-  const quiver = await Quiver.fromBuilt("/quivers/my-quiver/");
+  const quiver = await Quiver.fromBuiltUrl("/quivers/my-quiver/");
   ```
+- **Node server-side runtime consumers** also run the build step, ship the
+  packed artifact in their deployment image, and load it from disk:
+  ```ts
+  await Quiver.build("./node_modules/@org/my-quiver", "./static/quills/my-quiver");
+  // server runtime
+  const quiver = await Quiver.fromBuiltDir("./static/quills/my-quiver");
+  ```
+  This keeps source quivers as devDependencies and avoids self-fetching
+  through the deployment's load balancer / CDN.
 
 Rationale:
 
@@ -206,7 +220,7 @@ Rationale:
 the default.** Authors who need to ship runtime-ready output directly
 (e.g. their consumers cannot run a Node build step) may publish
 `Quiver.build(...)` output to a CDN and instruct consumers to use
-`Quiver.fromBuilt(<cdn-url>)`. Treated as the exception.
+`Quiver.fromBuiltUrl(<cdn-url>)`. Treated as the exception.
 
 Validation responsibility shifts left: authors should run
 `Quiver.fromDir` and `Quiver.build` in CI so `quiver_invalid` errors
@@ -222,17 +236,19 @@ V1 intentionally retains:
 1. Font dehydration as a build-output property
 2. Consumer validation tooling for source layouts (+ optional build-parity checks)
 3. Manifest pointer resolution for build output
-4. HTTP/HTTPS loading via `Quiver.fromBuilt`
-5. Source layout loading as first-class dev loop (`fromPackage` / `fromDir`)
-6. Typed errors (`QuiverError`) with quiver/source context
-7. Concurrency coalescing for in-flight loads
-8. Preload/fail-fast helpers where they still add value
+4. HTTP/HTTPS loading via `Quiver.fromBuiltUrl`
+5. Filesystem loading of build output via `Quiver.fromBuiltDir` for Node
+   server-side runtimes
+6. Source layout loading as first-class dev loop (`fromPackage` / `fromDir`)
+7. Typed errors (`QuiverError`) with quiver/source context
+8. Concurrency coalescing for in-flight loads
+9. Preload/fail-fast helpers where they still add value
 
 Removed from carryover assumptions:
 
 - Any engine-registration cache fast path (`register`/`has`) because upstream removed the capability
-- "Transport" as a user-facing concept (folded into `fromBuilt` internals)
-- Loading build output from local disk (no `fromBuiltDir` in V1; YAGNI)
+- "Transport" as a user-facing concept (folded into `fromBuiltUrl` /
+  `fromBuiltDir` internals)
 
 ---
 
@@ -277,8 +293,10 @@ V1 runtime loading paths:
 1. `Quiver.fromPackage(specifier)` — npm package resolution; loads source
    (authoring/dev/Node runtime)
 2. `Quiver.fromDir(path)` — local directory; loads source (Node)
-3. `Quiver.fromBuilt(url)` — HTTP(S); loads build output (browser; also
+3. `Quiver.fromBuiltUrl(url)` — HTTP(S); loads build output (browser; also
    works in Node)
+4. `Quiver.fromBuiltDir(path)` — local directory; loads build output
+   (Node server-side runtime)
 
 V1 build behavior:
 
@@ -361,7 +379,7 @@ Rehydration on load: the loader fetches the pointer → hashed manifest → requ
 
 ## API Surface (V1)
 
-Single class, three loaders + one builder. Each loader has one input
+Single class, four loaders + one builder. Each loader has one input
 shape and one shape-of-thing-loaded; no auto-detection.
 
 ```ts
@@ -380,7 +398,13 @@ class Quiver {
   // Browser-safe loader: load build output from an http(s):// or
   // origin-relative URL. Throws `transport_error` on file:// inputs.
   // (From `@quillmark/quiver` main.)
-  static fromBuilt(url: string): Promise<Quiver>;
+  static fromBuiltUrl(url: string): Promise<Quiver>;
+
+  // Node-only loader: load build output from a local directory (the
+  // output of Quiver.build). No network. Use for server-side runtime
+  // when the packed artifact ships in the deployment image.
+  // (From `@quillmark/quiver/node`.)
+  static fromBuiltDir(dirPath: string): Promise<Quiver>;
 
   // Node-only tooling: produce the runtime artifact from a source layout.
   // (From `@quillmark/quiver/node`.)
@@ -429,12 +453,12 @@ const result = quill.render(doc, { format: "pdf" });
 
 **Entrypoints:**
 - `@quillmark/quiver` (main, browser-safe): `Quiver` class with only
-  `fromBuilt` functional (Node-only loaders/builder throw
+  `fromBuiltUrl` functional (Node-only loaders/builder throw
   `transport_error` if reached in browser), `QuiverError`,
   `QuillmarkLike`, `QuillLike`, shared types.
 - `@quillmark/quiver/node`: adds `Quiver.fromPackage`, `Quiver.fromDir`,
-  `Quiver.build` behaviors. Single `Quiver` class — Node-only factories
-  fail fast outside Node.
+  `Quiver.fromBuiltDir`, `Quiver.build` behaviors. Single `Quiver` class —
+  Node-only factories fail fast outside Node.
 - `@quillmark/quiver/testing` (Node-only): single export
   `runQuiverTests(metaUrlOrDir, engine)` built on `node:test` (zero
   external test-runner dependency). Optional convenience; users on other
@@ -466,7 +490,7 @@ const result = quill.render(doc, { format: "pdf" });
 
 All V1 planner questions resolved; implementation plan can proceed against the spec above.
 
-1. ~~Final `Quiver` interface shape and transport factoring style~~ → Single `Quiver` class, three loaders (`fromPackage`, `fromDir`, `fromBuilt`) + one builder (`build`). Each loader names what it loads; no auto-detection.
+1. ~~Final `Quiver` interface shape and transport factoring style~~ → Single `Quiver` class, four loaders (`fromPackage`, `fromDir`, `fromBuiltUrl`, `fromBuiltDir`) + one builder (`build`). Each loader names what it loads (source/built) and where it loads from (package/dir/url); no auto-detection.
 2. ~~Final `Quiver.yaml` schema and unknown-field policy~~ → See §2: alphanumeric `name` and optional tooling-only `description`. Unknown fields are `quiver_invalid`.
 3. ~~Canonical ref grammar and parser API contract~~ → Internal `parseQuillRef`, not exported. Selector syntax per §5. Throws `invalid_ref`.
 4. ~~Exact warning policy for shadowed refs across quivers~~ → N/A in V1: no multi-quiver composition layer; each `Quiver` instance is independent (§4).

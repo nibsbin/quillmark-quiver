@@ -4,7 +4,7 @@
  * Importing this module is the consumer's explicit declaration of intent:
  * "I am running in Node and want the Node-only Quiver factories." It exposes
  * the same `Quiver` class as the main entry, augmented with `fromDir`,
- * `fromPackage`, and `build` static methods.
+ * `fromPackage`, `fromBuiltDir`, and `build` static methods.
  *
  * Side effect: at module evaluation time, the Node-only static methods are
  * installed on the shared `Quiver` constructor. Any other module that already
@@ -12,16 +12,19 @@
  * runtime — but TypeScript will only expose them on the binding imported from
  * here, so the import path remains the contract.
  *
- * Bundler note: importing this entry pulls in `./source-loader.js` and
- * `./build.js`, both of which statically import `node:*` builtins. Browser
- * bundles must never reach this module. The main entry (`./index.js`) makes
- * no static or dynamic reference to it.
+ * Bundler note: importing this entry pulls in `./source-loader.js`,
+ * `./build.js`, and `./transports/fs-built-transport.js`, all of which
+ * statically import `node:*` builtins. Browser bundles must never reach this
+ * module. The main entry (`./index.js`) makes no static or dynamic reference
+ * to it.
  */
 
 import { Quiver as Base } from "./quiver.js";
 import { QuiverError } from "./errors.js";
 import { scanSourceQuiver, SourceLoader } from "./source-loader.js";
 import { buildQuiver, type BuildOptions } from "./build.js";
+import { loadBuiltQuiver } from "./built-loader.js";
+import { FsBuiltTransport } from "./transports/fs-built-transport.js";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,6 +61,21 @@ type NodeQuiverStatics = {
   fromDir(pathOrFileUrl: string): Promise<Base>;
 
   /**
+   * Loads a packed (build-output) quiver from a local directory containing
+   * `Quiver.json` and the manifest/bundle/store files written by
+   * `Quiver.build`. Symmetric to `fromBuiltUrl(url)` but reads from disk
+   * instead of HTTP — no network required.
+   *
+   * Use this for server-side runtime when a packed artifact ships in the
+   * deployment image; consumers can keep source quivers as devDependencies
+   * and avoid self-fetching over their own load balancer.
+   *
+   * Throws `quiver_invalid` on format errors, `transport_error` on I/O
+   * failure.
+   */
+  fromBuiltDir(dirPath: string): Promise<Base>;
+
+  /**
    * Reads the Source Quiver at sourceDir, validates it, and writes the
    * runtime build artifact to outDir.
    *
@@ -84,6 +102,12 @@ Quiver.fromDir = async function fromDir(pathOrFileUrl: string): Promise<Base> {
     : pathOrFileUrl;
   const { meta, catalog } = await scanSourceQuiver(dir);
   return Base._fromLoader(meta.name, catalog, new SourceLoader(dir));
+};
+
+Quiver.fromBuiltDir = async function fromBuiltDir(
+  dirPath: string,
+): Promise<Base> {
+  return loadBuiltQuiver(new FsBuiltTransport(dirPath));
 };
 
 Quiver.fromPackage = async function fromPackage(
