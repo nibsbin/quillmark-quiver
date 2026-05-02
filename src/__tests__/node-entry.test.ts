@@ -37,8 +37,12 @@ describe("node entry — augmented surface", () => {
     expect(typeof NodeQuiver.build).toBe("function");
   });
 
-  it("preserves fromBuilt from the base class", () => {
-    expect(typeof NodeQuiver.fromBuilt).toBe("function");
-    expect(NodeQuiver.fromBuilt).toBe(MainQuiver.fromBuilt);
+  it("installs fromBuiltDir on the shared class", () => {
+    expect(typeof NodeQuiver.fromBuiltDir).toBe("function");
+  });
+
+  it("preserves fromBuiltUrl from the base class", () => {
+    expect(typeof NodeQuiver.fromBuiltUrl).toBe("function");
+    expect(NodeQuiver.fromBuiltUrl).toBe(MainQuiver.fromBuiltUrl);
   });
 });

@@ -4,10 +4,10 @@
  * Polymorphism via composition: internally stores a pluggable loader
  * (either source-backed or build-output-backed).
  *
- * This module is browser-safe: only `fromBuilt` and the instance API live
- * here. Node-only factories (`fromDir`, `fromPackage`, `build`) are installed
- * on this class by `./node.js`, which is the consumer's explicit opt-in to
- * the Node API surface.
+ * This module is browser-safe: only `fromBuiltUrl` and the instance API live
+ * here. Node-only factories (`fromDir`, `fromPackage`, `fromBuiltDir`,
+ * `build`) are installed on this class by `./node.js`, which is the
+ * consumer's explicit opt-in to the Node API surface.
  */
 
 import { QuiverError } from "./errors.js";
@@ -44,10 +44,10 @@ export class Quiver {
   readonly #treeCache: Map<string, Promise<Map<string, Uint8Array>>> = new Map();
 
   /**
-   * Private constructor — use static factory methods (`Quiver.fromBuilt`, or
-   * the Node-only `Quiver.fromDir` / `Quiver.fromPackage` installed by
-   * `@quillmark/quiver/node`). TS prevents external `new Quiver(...)` at
-   * compile time.
+   * Private constructor — use static factory methods (`Quiver.fromBuiltUrl`,
+   * or the Node-only `Quiver.fromDir` / `Quiver.fromPackage` /
+   * `Quiver.fromBuiltDir` installed by `@quillmark/quiver/node`). TS prevents
+   * external `new Quiver(...)` at compile time.
    */
   private constructor(
     name: string,
@@ -76,18 +76,18 @@ export class Quiver {
    * Browser-safe factory. Loads build output from an HTTP/HTTPS URL.
    *
    * Origin-relative URLs (e.g. `/quivers/foo/`) are accepted in browser
-   * environments. `file://` URLs are rejected — local build output is
-   * not loadable in V1; serve over HTTP or use `fromPackage`/`fromDir`
-   * against the source.
+   * environments. `file://` URLs are rejected — to load build output from
+   * disk in Node, use `Quiver.fromBuiltDir(path)` from
+   * `@quillmark/quiver/node`.
    *
    * Throws `transport_error` on network/HTTP failure, `quiver_invalid`
    * on format errors.
    */
-  static async fromBuilt(url: string): Promise<Quiver> {
+  static async fromBuiltUrl(url: string): Promise<Quiver> {
     if (url.startsWith("file://")) {
       throw new QuiverError(
         "transport_error",
-        `Quiver.fromBuilt requires an http(s):// or origin-relative URL; got "${url}". Local build output is not loadable in V1 — serve it over HTTP or load source via fromPackage/fromDir.`,
+        `Quiver.fromBuiltUrl requires an http(s):// or origin-relative URL; got "${url}". For local build output, use Quiver.fromBuiltDir from @quillmark/quiver/node.`,
       );
     }
     const { HttpTransport } = await import("./transports/http-transport.js");
