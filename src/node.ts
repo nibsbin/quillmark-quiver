@@ -4,7 +4,7 @@
  * Importing this module is the consumer's explicit declaration of intent:
  * "I am running in Node and want the Node-only Quiver factories." It exposes
  * the same `Quiver` class as the main entry, augmented with `fromDir`,
- * `fromPackage`, `fromBuiltDir`, and `build` static methods.
+ * `fromPackage`, `fromBuiltDir`, `build`, and `buildPackage` static methods.
  *
  * Side effect: at module evaluation time, the Node-only static methods are
  * installed on the shared `Quiver` constructor. Any other module that already
@@ -87,6 +87,21 @@ type NodeQuiverStatics = {
     outDir: string,
     opts?: BuildOptions,
   ): Promise<void>;
+
+  /**
+   * Resolves an npm specifier against `node_modules` and builds the source
+   * layout at the package root. The resolved package must have `Quiver.yaml`
+   * at its root. Symmetric to `fromPackage` but writes a runtime build
+   * artifact to outDir instead of loading.
+   *
+   * Throws `transport_error` on resolution/I/O failure, `quiver_invalid` on
+   * source validation failures.
+   */
+  buildPackage(
+    specifier: string,
+    outDir: string,
+    opts?: BuildOptions,
+  ): Promise<void>;
 };
 
 export type Quiver = Base;
@@ -133,6 +148,25 @@ Quiver.build = async function build(
   opts?: BuildOptions,
 ): Promise<void> {
   return buildQuiver(sourceDir, outDir, opts);
+};
+
+Quiver.buildPackage = async function buildPackage(
+  specifier: string,
+  outDir: string,
+  opts?: BuildOptions,
+): Promise<void> {
+  const req = createRequire(import.meta.url);
+  let yamlPath: string;
+  try {
+    yamlPath = req.resolve(`${specifier}/Quiver.yaml`);
+  } catch (err) {
+    throw new QuiverError(
+      "transport_error",
+      `Failed to resolve quiver package "${specifier}": ${(err as Error).message}`,
+      { cause: err },
+    );
+  }
+  return buildQuiver(dirname(yamlPath), outDir, opts);
 };
 
 // ---------------------------------------------------------------------------
