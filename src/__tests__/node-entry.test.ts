@@ -3,8 +3,8 @@
  *
  * The package ships two TypeScript entries that resolve to the *same* runtime
  * `Quiver` constructor. Importing `@quillmark/quiver/node` is a side-effecting
- * declaration of intent: it installs `fromDir`, `fromPackage`, and `build` on
- * the shared class.
+ * declaration of intent: it installs `fromDir`, `fromPackage`, `build`, and
+ * `buildPackage` on the shared class.
  */
 
 import { describe, it, expect } from "vitest";
@@ -35,6 +35,10 @@ describe("node entry — augmented surface", () => {
 
   it("installs build on the shared class", () => {
     expect(typeof NodeQuiver.build).toBe("function");
+  });
+
+  it("installs buildPackage on the shared class", () => {
+    expect(typeof NodeQuiver.buildPackage).toBe("function");
   });
 
   it("installs fromBuiltDir on the shared class", () => {

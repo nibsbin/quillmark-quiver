@@ -406,3 +406,17 @@ describe("Quiver.build (static method delegation)", () => {
     expect(pointer.manifest).toMatch(/^manifest\.[0-9a-f]{6}\.json$/);
   });
 });
+
+describe("Quiver.buildPackage", () => {
+  it("throws transport_error when the specifier cannot be resolved", async () => {
+    const out = tempDir();
+    await expect(
+      Quiver.buildPackage("@nonexistent/quiver-pkg-xyz", out),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "transport_error" }),
+    );
+    await expect(
+      Quiver.buildPackage("@nonexistent/quiver-pkg-xyz", out),
+    ).rejects.toBeInstanceOf(QuiverError);
+  });
+});
